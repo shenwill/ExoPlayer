@@ -73,6 +73,41 @@ public class MatroskaExtractor implements Extractor {
   /** Factory for {@link MatroskaExtractor} instances. */
   public static final ExtractorsFactory FACTORY = () -> new Extractor[] {new MatroskaExtractor()};
 
+  public long[] getChapterStartTimes() {
+    if (chapters != null && chapters.size() > 0) {
+      List<ChapterAtom> chapterAtoms = chapters.get(0).chapterAtoms;
+      long[] times = new long[chapterAtoms.size()];
+      for (int i = 0, l = chapterAtoms.size(); i < l; i++) {
+        times[i] = chapterAtoms.get(i).timeStart;
+      }
+      return times;
+    }
+    return null;
+  }
+
+  public String[] getChapterTitles(String language) {
+    if (chapters != null && chapters.size() > 0) {
+      List<ChapterAtom> chapterAtoms = chapters.get(0).chapterAtoms;
+      String[] titles = new String[chapterAtoms.size()];
+      for (int i = 0, l = chapterAtoms.size(); i < l; i++) {
+        List<ChapterDisplay> chapterDisplays = chapterAtoms.get(i).chapterDisplays;
+        titles[i] = "";
+        if (chapterDisplays != null && chapterDisplays.size() > 0) {
+          titles[i] = chapterDisplays.get(0).string;
+          if (language != null && chapterDisplays.size() > 1) {
+            for (ChapterDisplay chapterDisplay : chapterDisplays) {
+              if (language.equals(chapterDisplay.language)) {
+                titles[i] = chapterDisplay.string;
+              }
+            }
+          }
+        }
+      }
+      return titles;
+    }
+    return null;
+  }
+
   /**
    * Flags controlling the behavior of the extractor. Possible flag value is {@link
    * #FLAG_DISABLE_SEEK_FOR_CUES}.
@@ -232,6 +267,19 @@ public class MatroskaExtractor implements Extractor {
   private static final int ID_WHITE_POINT_CHROMATICITY_Y = 0x55D8;
   private static final int ID_LUMNINANCE_MAX = 0x55D9;
   private static final int ID_LUMNINANCE_MIN = 0x55DA;
+  private static final int ID_EDITION_ENTRY = 0x45B9;
+  private static final int ID_EDITION_UID = 0x45BC;
+  private static final int ID_EDITION_FLAG_HIDDEN = 0x45BD;
+  private static final int ID_EDITION_FLAG_DEFAULT = 0x45DB;
+  private static final int ID_CHAPTERS = 0x1043A770;
+  private static final int ID_CHAPTER_ATOM = 0xB6;
+  private static final int ID_CHAPTER_UID = 0x73C4;
+  private static final int ID_CHAPTER_TIME_START = 0x91;
+  private static final int ID_CHAPTER_FLAG_HIDDEN = 0x98;
+  private static final int ID_CHAPTER_FLAG_ENABLED = 0x4598;
+  private static final int ID_CHAPTER_DISPLAY = 0x80;
+  private static final int ID_CHAP_STRING = 0x85;
+  private static final int ID_CHAP_LANGUAGE = 0x437C;
 
   /**
    * BlockAddID value for ITU T.35 metadata in a VP9 track. See also
@@ -356,6 +404,7 @@ public class MatroskaExtractor implements Extractor {
   private final EbmlReader reader;
   private final VarintReader varintReader;
   private final SparseArray<Track> tracks;
+  public final List<Edition> chapters;
   private final boolean seekForCuesEnabled;
 
   // Temporary arrays.
@@ -379,6 +428,11 @@ public class MatroskaExtractor implements Extractor {
 
   // The track corresponding to the current TrackEntry element, or null.
   @Nullable private Track currentTrack;
+
+  // The edition corresponding to the current Edition element, or null.
+  @Nullable private Edition currentEdition;
+  @Nullable private ChapterAtom currentChapterAtom;
+  @Nullable private ChapterDisplay currentChapterDisplay;
 
   // Whether a seek map has been sent to the output.
   private boolean sentSeekMap;
@@ -440,6 +494,7 @@ public class MatroskaExtractor implements Extractor {
     seekForCuesEnabled = (flags & FLAG_DISABLE_SEEK_FOR_CUES) == 0;
     varintReader = new VarintReader();
     tracks = new SparseArray<>();
+    chapters = new ArrayList(1);
     scratch = new ParsableByteArray(4);
     vorbisNumPageSamples = new ParsableByteArray(ByteBuffer.allocate(4).putInt(-1).array());
     seekEntryIdBytes = new ParsableByteArray(4);
@@ -514,6 +569,10 @@ public class MatroskaExtractor implements Extractor {
       case ID_SEEK_HEAD:
       case ID_SEEK:
       case ID_INFO:
+      case ID_CHAPTERS:
+      case ID_EDITION_ENTRY:
+      case ID_CHAPTER_ATOM:
+      case ID_CHAPTER_DISPLAY:
       case ID_CLUSTER:
       case ID_TRACKS:
       case ID_TRACK_ENTRY:
@@ -573,11 +632,20 @@ public class MatroskaExtractor implements Extractor {
       case ID_MAX_FALL:
       case ID_PROJECTION_TYPE:
       case ID_BLOCK_ADD_ID:
+      case ID_EDITION_UID:
+      case ID_EDITION_FLAG_DEFAULT:
+      case ID_EDITION_FLAG_HIDDEN:
+      case ID_CHAPTER_UID:
+      case ID_CHAPTER_TIME_START:
+      case ID_CHAPTER_FLAG_ENABLED:
+      case ID_CHAPTER_FLAG_HIDDEN:
         return EbmlProcessor.ELEMENT_TYPE_UNSIGNED_INT;
       case ID_DOC_TYPE:
       case ID_NAME:
       case ID_CODEC_ID:
       case ID_LANGUAGE:
+      case ID_CHAP_LANGUAGE:
+      case ID_CHAP_STRING:
         return EbmlProcessor.ELEMENT_TYPE_STRING;
       case ID_SEEK_ID:
       case ID_BLOCK_ADD_ID_EXTRA_DATA:
@@ -672,6 +740,15 @@ public class MatroskaExtractor implements Extractor {
       case ID_CONTENT_ENCRYPTION:
         currentTrack.hasContentEncryption = true;
         break;
+      case ID_CHAPTERS:
+        currentEdition = new Edition();
+        break;
+      case ID_CHAPTER_ATOM:
+        currentChapterAtom = new ChapterAtom();
+        break;
+      case ID_CHAPTER_DISPLAY:
+        currentChapterDisplay = new ChapterDisplay();
+        break;
       case ID_TRACK_ENTRY:
         currentTrack = new Track();
         break;
@@ -754,6 +831,24 @@ public class MatroskaExtractor implements Extractor {
         if (currentTrack.hasContentEncryption && currentTrack.sampleStrippedBytes != null) {
           throw new ParserException("Combining encryption and compression is not supported");
         }
+        break;
+      case ID_EDITION_ENTRY:
+        chapters.add(currentEdition);
+        currentEdition = null;
+        break;
+      case ID_CHAPTER_ATOM:
+        currentEdition.chapterAtoms.add(currentChapterAtom);
+        currentChapterAtom = null;
+        break;
+      case ID_CHAPTER_DISPLAY:
+        currentChapterAtom.chapterDisplays.add(currentChapterDisplay);
+        currentChapterDisplay = null;
+        break;
+      case ID_CHAPTERS:
+        if (chapters.size() == 0) {
+          throw new ParserException("No valid chapters were found");
+        }
+        extractorOutput.chapterStartTimes(getChapterStartTimes());
         break;
       case ID_TRACK_ENTRY:
         if (isCodecSupported(currentTrack.codecId)) {
@@ -995,6 +1090,27 @@ public class MatroskaExtractor implements Extractor {
       case ID_BLOCK_ADD_ID:
         blockAdditionalId = (int) value;
         break;
+      case ID_EDITION_UID:
+        currentEdition.uid = value;
+        break;
+      case ID_CHAPTER_TIME_START:
+        currentChapterAtom.timeStart = value;
+        break;
+      case ID_EDITION_FLAG_DEFAULT:
+        currentEdition.flagDefault = value == 1;
+        break;
+      case ID_EDITION_FLAG_HIDDEN:
+        currentEdition.flagHidden = value == 1;
+        break;
+      case ID_CHAPTER_UID:
+        currentChapterAtom.uid = value;
+        break;
+      case ID_CHAPTER_FLAG_ENABLED:
+        currentChapterAtom.flagEnabled = value == 1;
+        break;
+      case ID_CHAPTER_FLAG_HIDDEN:
+        currentChapterAtom.flagHidden = value == 1;
+        break;
       default:
         break;
     }
@@ -1083,6 +1199,12 @@ public class MatroskaExtractor implements Extractor {
         break;
       case ID_LANGUAGE:
         currentTrack.language = value;
+        break;
+      case ID_CHAP_LANGUAGE:
+        currentChapterDisplay.language = value;
+        break;
+      case ID_CHAP_STRING:
+        currentChapterDisplay.string = value;
         break;
       default:
         break;
@@ -1902,6 +2024,26 @@ public class MatroskaExtractor implements Extractor {
         chunkSampleCount = 0;
       }
     }
+  }
+
+  private static final class Edition {
+    public long uid;
+    public boolean flagHidden;
+    public boolean flagDefault;
+    public List<ChapterAtom> chapterAtoms = new ArrayList();
+  }
+
+  private static final class ChapterAtom {
+    public long uid;
+    public boolean flagEnabled;
+    public boolean flagHidden;
+    public long timeStart = C.TIME_UNSET;
+    public List<ChapterDisplay> chapterDisplays = new ArrayList(1);
+  }
+
+  private static final class ChapterDisplay {
+    public String string;
+    public String language;
   }
 
   private static final class Track {

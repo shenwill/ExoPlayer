@@ -1038,6 +1038,11 @@ import org.checkerframework.checker.nullness.qual.RequiresNonNull;
     // Do nothing.
   }
 
+  @Override
+  public void chapterStartTimes(long[] startTimes) {
+    // Do nothing.
+  }
+
   // UpstreamFormatChangedListener implementation. Called by the loading thread.
 
   @Override

@@ -41,6 +41,11 @@ public interface ExtractorOutput {
         public void seekMap(SeekMap seekMap) {
           throw new UnsupportedOperationException();
         }
+
+        @Override
+        public void chapterStartTimes(long[] startTimes) {
+          throw new UnsupportedOperationException();
+        }
       };
 
   /**
@@ -69,4 +74,5 @@ public interface ExtractorOutput {
    */
   void seekMap(SeekMap seekMap);
 
+  void chapterStartTimes(long[] startTimes);
 }

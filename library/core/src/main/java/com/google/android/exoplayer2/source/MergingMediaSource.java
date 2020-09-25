@@ -140,6 +140,10 @@ public final class MergingMediaSource extends CompositeMediaSource<Integer> {
     return mediaSources.length > 0 ? mediaSources[0].getMediaItem() : EMPTY_MEDIA_ITEM;
   }
 
+  public MediaSource getMediaSource() {
+    return mediaSources.length > 0 ? mediaSources[0] : null;
+  }
+
   @Override
   protected void prepareSourceInternal(@Nullable TransferListener mediaTransferListener) {
     super.prepareSourceInternal(mediaTransferListener);

@@ -47,6 +47,10 @@ import com.google.android.exoplayer2.upstream.TransferListener;
 public final class ProgressiveMediaSource extends BaseMediaSource
     implements ProgressiveMediaPeriod.Listener {
 
+  public long[] getStartTimes() {
+    return this.chapterStartTimes;
+  }
+
   /** Factory for {@link ProgressiveMediaSource}s. */
   public static final class Factory implements MediaSourceFactory {
 
@@ -227,6 +231,8 @@ public final class ProgressiveMediaSource extends BaseMediaSource
   private long timelineDurationUs;
   private boolean timelineIsSeekable;
   private boolean timelineIsLive;
+  private long[] chapterStartTimes;
+
   @Nullable private TransferListener transferListener;
 
   // TODO: Make private when ExtractorMediaSource is deleted.
@@ -324,6 +330,11 @@ public final class ProgressiveMediaSource extends BaseMediaSource
     timelineIsLive = isLive;
     timelineIsPlaceholder = false;
     notifySourceInfoRefreshed();
+  }
+
+  @Override
+  public void onChapterStartTimesReady(long[] chapterStartTimes) {
+    this.chapterStartTimes = chapterStartTimes;
   }
 
   // Internal methods.

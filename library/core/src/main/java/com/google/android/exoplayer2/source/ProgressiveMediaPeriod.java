@@ -87,6 +87,7 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
      * @param isLive Whether the period is live.
      */
     void onSourceInfoRefreshed(long durationUs, boolean isSeekable, boolean isLive);
+    void onChapterStartTimesReady(long[] chapterStartTimes);
   }
 
   /**
@@ -688,6 +689,11 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
   @Override
   public void seekMap(SeekMap seekMap) {
     handler.post(() -> setSeekMap(seekMap));
+  }
+
+  @Override
+  public void chapterStartTimes(long[] startTimes) {
+    listener.onChapterStartTimesReady(startTimes);
   }
 
   // Icy metadata. Called by the loading thread.

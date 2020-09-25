@@ -147,6 +147,11 @@ public final class BundledChunkExtractor implements ExtractorOutput, ChunkExtrac
     this.seekMap = seekMap;
   }
 
+  @Override
+  public void chapterStartTimes(long[] startTimes) {
+
+  }
+
   // Internal logic.
 
   private static final class BindingTrackOutput implements TrackOutput {
