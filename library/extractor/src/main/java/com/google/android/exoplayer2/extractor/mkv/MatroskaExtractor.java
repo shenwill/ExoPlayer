@@ -2080,7 +2080,7 @@ public class MatroskaExtractor implements Extractor {
     public int displayWidth = Format.NO_VALUE;
     public int displayHeight = Format.NO_VALUE;
     public int displayUnit = DISPLAY_UNIT_PIXELS;
-    public float frameRate = -1;
+    public float frameRate = -1.0f;
     @C.Projection public int projectionType = Format.NO_VALUE;
     public float projectionPoseYaw = 0f;
     public float projectionPosePitch = 0f;
@@ -2158,7 +2158,9 @@ public class MatroskaExtractor implements Extractor {
           AvcConfig avcConfig = AvcConfig.parse(new ParsableByteArray(codecPrivate));
           initializationData = avcConfig.initializationData;
           nalUnitLengthFieldLength = avcConfig.nalUnitLengthFieldLength;
-          frameRate = avcConfig.frameRate;
+          if (frameRate < 0) {
+            frameRate = avcConfig.frameRate;
+          }
           break;
         case CODEC_ID_H265:
           mimeType = MimeTypes.VIDEO_H265;
