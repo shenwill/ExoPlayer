@@ -19,10 +19,13 @@ import static com.google.android.exoplayer2.util.Util.binarySearchCeil;
 import static com.google.android.exoplayer2.util.Util.binarySearchFloor;
 import static com.google.android.exoplayer2.util.Util.escapeFileName;
 import static com.google.android.exoplayer2.util.Util.getCodecsOfType;
+import static com.google.android.exoplayer2.util.Util.getStringForTime;
+import static com.google.android.exoplayer2.util.Util.minValue;
 import static com.google.android.exoplayer2.util.Util.parseXsDateTime;
 import static com.google.android.exoplayer2.util.Util.parseXsDuration;
 import static com.google.android.exoplayer2.util.Util.unescapeFileName;
 import static com.google.common.truth.Truth.assertThat;
+import static org.junit.Assert.assertThrows;
 
 import android.database.sqlite.SQLiteDatabase;
 import android.database.sqlite.SQLiteOpenHelper;
@@ -31,12 +34,15 @@ import android.text.SpannableString;
 import android.text.Spanned;
 import android.text.style.StrikethroughSpan;
 import android.text.style.UnderlineSpan;
+import android.util.SparseLongArray;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 import com.google.android.exoplayer2.C;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Formatter;
+import java.util.NoSuchElementException;
 import java.util.Random;
 import java.util.zip.Deflater;
 import org.junit.Test;
@@ -722,6 +728,21 @@ public class UtilTest {
   }
 
   @Test
+  public void sparseLongArrayMinValue_returnsMinValue() {
+    SparseLongArray sparseLongArray = new SparseLongArray();
+    sparseLongArray.put(0, 12);
+    sparseLongArray.put(25, 10);
+    sparseLongArray.put(42, 11);
+
+    assertThat(minValue(sparseLongArray)).isEqualTo(10);
+  }
+
+  @Test
+  public void sparseLongArrayMinValue_emptyArray_throws() {
+    assertThrows(NoSuchElementException.class, () -> minValue(new SparseLongArray()));
+  }
+
+  @Test
   public void parseXsDuration_returnsParsedDurationInMillis() {
     assertThat(parseXsDuration("PT150.279S")).isEqualTo(150279L);
     assertThat(parseXsDuration("PT1.500S")).isEqualTo(1500L);
@@ -872,6 +893,14 @@ public class UtilTest {
       String string = buildTestString(1000, random);
       assertEscapeUnescapeFileName(string);
     }
+  }
+
+  @Test
+  public void getDataUriForString_returnsCorrectDataUri() {
+    assertThat(
+            Util.getDataUriForString(/* mimeType= */ "text/plain", "Some Data!<>:\"/\\|?*%")
+                .toString())
+        .isEqualTo("data:text/plain;base64,U29tZSBEYXRhITw+OiIvXHw/KiU=");
   }
 
   @Test
@@ -1080,6 +1109,12 @@ public class UtilTest {
     SQLiteDatabase database = getInMemorySQLiteOpenHelper().getReadableDatabase();
 
     assertThat(Util.tableExists(database, "table")).isFalse();
+  }
+
+  @Test
+  public void getStringForTime_withNegativeTime_setsNegativePrefix() {
+    assertThat(getStringForTime(new StringBuilder(), new Formatter(), /* timeMs= */ -35000))
+        .isEqualTo("-00:35");
   }
 
   private static void assertEscapeUnescapeFileName(String fileName, String escapedFileName) {

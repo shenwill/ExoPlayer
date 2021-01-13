@@ -19,11 +19,11 @@ import static java.lang.Math.max;
 
 import androidx.annotation.IntDef;
 import com.google.android.exoplayer2.C;
-import com.google.android.exoplayer2.extractor.ChunkIndex;
 import com.google.android.exoplayer2.extractor.Extractor;
 import com.google.android.exoplayer2.extractor.ExtractorInput;
 import com.google.android.exoplayer2.extractor.ExtractorOutput;
 import com.google.android.exoplayer2.extractor.ExtractorsFactory;
+import com.google.android.exoplayer2.extractor.IndexSeekMap;
 import com.google.android.exoplayer2.extractor.PositionHolder;
 import com.google.android.exoplayer2.extractor.SeekMap;
 import com.google.android.exoplayer2.util.Assertions;
@@ -32,7 +32,6 @@ import java.io.IOException;
 import java.lang.annotation.Documented;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
-import java.util.List;
 import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
 import org.checkerframework.checker.nullness.qual.RequiresNonNull;
 
@@ -87,7 +86,6 @@ public final class FlvExtractor implements Extractor {
   private int tagDataSize;
   private long tagTimestampUs;
   private boolean outputSeekMap;
-  private boolean seekMapIsSeekable;
   private @MonotonicNonNull AudioTagPayloadReader audioReader;
   private @MonotonicNonNull VideoTagPayloadReader videoReader;
 
@@ -138,13 +136,12 @@ public final class FlvExtractor implements Extractor {
 
   @Override
   public void seek(long position, long timeUs) {
-    if (seekMapIsSeekable) {
-      state = STATE_READING_TAG_HEADER;
-    } else {
+    if (position == 0) {
       state = STATE_READING_FLV_HEADER;
-      mediaTagTimestampOffsetUs = C.TIME_UNSET;
+      outputFirstSample = false;
+    } else {
+      state = STATE_READING_TAG_HEADER;
     }
-    outputFirstSample = false;
     bytesToNextTagHeader = 0;
   }
 
@@ -273,13 +270,15 @@ public final class FlvExtractor implements Extractor {
       wasSampleOutput = videoReader.consume(prepareTagData(input), timestampUs);
     } else if (tagType == TAG_TYPE_SCRIPT_DATA && !outputSeekMap) {
       wasSampleOutput = metadataReader.consume(prepareTagData(input), timestampUs);
-      SeekMap seekMap = buildSeekMap(metadataReader.getSeekMapTimes(),
-          metadataReader.getSeekMapFilePositions(),
-          metadataReader.getDurationUs(),
-          input.getLength());
-      seekMapIsSeekable = seekMap.isSeekable();
-      extractorOutput.seekMap(seekMap);
-      outputSeekMap = true;
+      long durationUs = metadataReader.getDurationUs();
+      if (durationUs != C.TIME_UNSET) {
+        extractorOutput.seekMap(
+            new IndexSeekMap(
+                metadataReader.getKeyFrameTagPositions(),
+                metadataReader.getKeyFrameTimesUs(),
+                durationUs));
+        outputSeekMap = true;
+      }
     } else {
       input.skipFully(tagDataSize);
       wasConsumed = false;
@@ -311,36 +310,6 @@ public final class FlvExtractor implements Extractor {
       extractorOutput.seekMap(new SeekMap.Unseekable(C.TIME_UNSET));
       outputSeekMap = true;
     }
-  }
-
-  private SeekMap buildSeekMap(List<Double> times, List<Double> filePositions, long durationUs,
-                               long flvDataSize) {
-    if (durationUs == C.TIME_UNSET
-        || times == null || times.size() == 0
-        || filePositions == null || filePositions.size() != times.size()) {
-      // Key frames information is missing or incomplete.
-      return new SeekMap.Unseekable(durationUs);
-    }
-    int keyFrameSize = times.size();
-    if ((long) (times.get(times.size() - 1) * C.MICROS_PER_SECOND) == durationUs) {
-      // the last keyframe has no sample data followed (AVC_PACKET_TYPE_END_OF_SEQUENCE)
-      keyFrameSize = keyFrameSize - 1;
-    }
-    int[] sizes = new int[keyFrameSize];
-    long[] offsets = new long[keyFrameSize];
-    long[] durationsUs = new long[keyFrameSize];
-    long[] timesUs = new long[keyFrameSize];
-    for (int i = 0; i < keyFrameSize; i++) {
-      timesUs[i] = (long) (times.get(i) * C.MICROS_PER_SECOND);
-      offsets[i] = (long) (filePositions.get(i) + 0);
-    }
-    for (int i = 0; i < keyFrameSize - 1; i++) {
-      sizes[i] = (int) (offsets[i + 1] - offsets[i]);
-      durationsUs[i] = timesUs[i + 1] - timesUs[i];
-    }
-    sizes[keyFrameSize - 1] = (int) (flvDataSize - sizes[keyFrameSize - 2]);
-    durationsUs[keyFrameSize - 1] = durationUs - timesUs[keyFrameSize - 1];
-    return new ChunkIndex(sizes, offsets, durationsUs, timesUs);
   }
 
   private long getCurrentTimestampUs() {

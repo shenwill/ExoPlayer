@@ -47,17 +47,26 @@ import java.util.Map;
   private static final int AMF_TYPE_DATE = 11;
 
   private long durationUs;
-
-  private List<Double> seekMapFilePositions;
-  private List<Double> seekMapTimes;
+  private long[] keyFrameTimesUs;
+  private long[] keyFrameTagPositions;
 
   public ScriptTagPayloadReader() {
     super(new DummyTrackOutput());
     durationUs = C.TIME_UNSET;
+    keyFrameTimesUs = new long[0];
+    keyFrameTagPositions = new long[0];
   }
 
   public long getDurationUs() {
     return durationUs;
+  }
+
+  public long[] getKeyFrameTimesUs() {
+    return keyFrameTimesUs;
+  }
+
+  public long[] getKeyFrameTagPositions() {
+    return keyFrameTagPositions;
   }
 
   @Override
@@ -87,21 +96,38 @@ import java.util.Map;
       // We're not interested in this metadata.
       return false;
     }
-    // Set the duration to the value contained in the metadata, if present.
     Map<String, Object> metadata = readAmfEcmaArray(data);
-    if (metadata.containsKey(KEY_DURATION)) {
-      double durationSeconds = (double) metadata.get(KEY_DURATION);
+    // Set the duration to the value contained in the metadata, if present.
+    @Nullable Object durationSecondsObj = metadata.get(KEY_DURATION);
+    if (durationSecondsObj instanceof Double) {
+      double durationSeconds = (double) durationSecondsObj;
       if (durationSeconds > 0.0) {
         durationUs = (long) (durationSeconds * C.MICROS_PER_SECOND);
       }
     }
-    if (metadata.containsKey(KEY_KEY_FRAMES)) {
-      Object frames = metadata.get(KEY_KEY_FRAMES);
-      if (frames instanceof Map) {
-        Map framesMap = (Map) metadata.get(KEY_KEY_FRAMES);
-        if (framesMap.size() > 0) {
-          seekMapFilePositions = (List<Double>) framesMap.get(KEY_FILE_POSITIONS);
-          seekMapTimes = (List<Double>) framesMap.get(KEY_TIMES);
+    // Set the key frame times and positions to the value contained in the metadata, if present.
+    @Nullable Object keyFramesObj = metadata.get(KEY_KEY_FRAMES);
+    if (keyFramesObj instanceof Map) {
+      Map<?, ?> keyFrames = (Map<?, ?>) keyFramesObj;
+      @Nullable Object positionsObj = keyFrames.get(KEY_FILE_POSITIONS);
+      @Nullable Object timesSecondsObj = keyFrames.get(KEY_TIMES);
+      if (positionsObj instanceof List && timesSecondsObj instanceof List) {
+        List<?> positions = (List<?>) positionsObj;
+        List<?> timesSeconds = (List<?>) timesSecondsObj;
+        int keyFrameCount = timesSeconds.size();
+        keyFrameTimesUs = new long[keyFrameCount];
+        keyFrameTagPositions = new long[keyFrameCount];
+        for (int i = 0; i < keyFrameCount; i++) {
+          Object positionObj = positions.get(i);
+          Object timeSecondsObj = timesSeconds.get(i);
+          if (timeSecondsObj instanceof Double && positionObj instanceof Double) {
+            keyFrameTimesUs[i] = (long) (((Double) timeSecondsObj) * C.MICROS_PER_SECOND);
+            keyFrameTagPositions[i] = ((Double) positionObj).longValue();
+          } else {
+            keyFrameTimesUs = new long[0];
+            keyFrameTagPositions = new long[0];
+            break;
+          }
         }
       }
     }
@@ -239,13 +265,5 @@ import java.util.Map;
         // We don't log a warning because there are types that we knowingly don't support.
         return null;
     }
-  }
-
-  public List<Double> getSeekMapFilePositions() {
-    return seekMapFilePositions;
-  }
-
-  public List<Double> getSeekMapTimes() {
-    return seekMapTimes;
   }
 }

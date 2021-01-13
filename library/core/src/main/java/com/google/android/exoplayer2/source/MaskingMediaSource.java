@@ -111,8 +111,8 @@ public final class MaskingMediaSource extends CompositeMediaSource<Void> {
   @Override
   public MaskingMediaPeriod createPeriod(
       MediaPeriodId id, Allocator allocator, long startPositionUs) {
-    MaskingMediaPeriod mediaPeriod =
-        new MaskingMediaPeriod(mediaSource, id, allocator, startPositionUs);
+    MaskingMediaPeriod mediaPeriod = new MaskingMediaPeriod(id, allocator, startPositionUs);
+    mediaPeriod.setMediaSource(mediaSource);
     if (isPrepared) {
       MediaPeriodId idInSource = id.copyWithPeriodUid(getInternalPeriodUid(id.periodUid));
       mediaPeriod.createPeriod(idInSource);
@@ -374,7 +374,7 @@ public final class MaskingMediaSource extends CompositeMediaSource<Void> {
           /* isSeekable= */ false,
           // Dynamic window to indicate pending timeline updates.
           /* isDynamic= */ true,
-          /* isLive= */ false,
+          /* liveConfiguration= */ null,
           /* defaultPositionUs= */ 0,
           /* durationUs= */ C.TIME_UNSET,
           /* firstPeriodIndex= */ 0,

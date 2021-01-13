@@ -15,8 +15,10 @@
  */
 package com.google.android.exoplayer2.source;
 
+import static com.google.android.exoplayer2.util.Util.castNonNull;
+
 import android.content.Context;
-import android.net.Uri;
+import android.util.Pair;
 import android.util.SparseArray;
 import androidx.annotation.Nullable;
 import com.google.android.exoplayer2.C;
@@ -29,6 +31,7 @@ import com.google.android.exoplayer2.source.ads.AdsLoader;
 import com.google.android.exoplayer2.source.ads.AdsLoader.AdViewProvider;
 import com.google.android.exoplayer2.source.ads.AdsMediaSource;
 import com.google.android.exoplayer2.upstream.DataSource;
+import com.google.android.exoplayer2.upstream.DataSpec;
 import com.google.android.exoplayer2.upstream.DefaultDataSourceFactory;
 import com.google.android.exoplayer2.upstream.HttpDataSource;
 import com.google.android.exoplayer2.upstream.LoadErrorHandlingPolicy;
@@ -71,27 +74,28 @@ import java.util.List;
  *
  * <h3>Ad support for media items with ad tag URIs</h3>
  *
- * <p>To support media items with {@link MediaItem.PlaybackProperties#adTagUri ad tag URIs}, {@link
- * #setAdsLoaderProvider} and {@link #setAdViewProvider} need to be called to configure the factory
- * with the required providers.
+ * <p>To support media items with {@link MediaItem.PlaybackProperties#adsConfiguration ads
+ * configuration}, {@link #setAdsLoaderProvider} and {@link #setAdViewProvider} need to be called to
+ * configure the factory with the required providers.
  */
 public final class DefaultMediaSourceFactory implements MediaSourceFactory {
 
   /**
    * Provides {@link AdsLoader} instances for media items that have {@link
-   * MediaItem.PlaybackProperties#adTagUri ad tag URIs}.
+   * MediaItem.PlaybackProperties#adsConfiguration ad tag URIs}.
    */
   public interface AdsLoaderProvider {
 
     /**
-     * Returns an {@link AdsLoader} for the given {@link MediaItem.PlaybackProperties#adTagUri ad
-     * tag URI}, or null if no ads loader is available for the given ad tag URI.
+     * Returns an {@link AdsLoader} for the given {@link
+     * MediaItem.PlaybackProperties#adsConfiguration ads configuration}, or {@code null} if no ads
+     * loader is available for the given ads configuration.
      *
      * <p>This method is called each time a {@link MediaSource} is created from a {@link MediaItem}
-     * that defines an {@link MediaItem.PlaybackProperties#adTagUri ad tag URI}.
+     * that defines an {@link MediaItem.PlaybackProperties#adsConfiguration ads configuration}.
      */
     @Nullable
-    AdsLoader getAdsLoader(Uri adTagUri);
+    AdsLoader getAdsLoader(MediaItem.AdsConfiguration adsConfiguration);
   }
 
   private static final String TAG = "DefaultMediaSourceFactory";
@@ -106,6 +110,11 @@ public final class DefaultMediaSourceFactory implements MediaSourceFactory {
   @Nullable private DrmSessionManager drmSessionManager;
   @Nullable private List<StreamKey> streamKeys;
   @Nullable private LoadErrorHandlingPolicy loadErrorHandlingPolicy;
+  private long liveTargetOffsetMs;
+  private long liveMinOffsetMs;
+  private long liveMaxOffsetMs;
+  private float liveMinSpeed;
+  private float liveMaxSpeed;
 
   /**
    * Creates a new instance.
@@ -154,11 +163,16 @@ public final class DefaultMediaSourceFactory implements MediaSourceFactory {
     for (int i = 0; i < mediaSourceFactories.size(); i++) {
       supportedTypes[i] = mediaSourceFactories.keyAt(i);
     }
+    liveTargetOffsetMs = C.TIME_UNSET;
+    liveMinOffsetMs = C.TIME_UNSET;
+    liveMaxOffsetMs = C.TIME_UNSET;
+    liveMinSpeed = C.RATE_UNSET;
+    liveMaxSpeed = C.RATE_UNSET;
   }
 
   /**
    * Sets the {@link AdsLoaderProvider} that provides {@link AdsLoader} instances for media items
-   * that have {@link MediaItem.PlaybackProperties#adTagUri ad tag URIs}.
+   * that have {@link MediaItem.PlaybackProperties#adsConfiguration ads configurations}.
    *
    * @param adsLoaderProvider A provider for {@link AdsLoader} instances.
    * @return This factory, for convenience.
@@ -177,6 +191,66 @@ public final class DefaultMediaSourceFactory implements MediaSourceFactory {
    */
   public DefaultMediaSourceFactory setAdViewProvider(@Nullable AdViewProvider adViewProvider) {
     this.adViewProvider = adViewProvider;
+    return this;
+  }
+
+  /**
+   * Sets the target live offset for live streams, in milliseconds.
+   *
+   * @param liveTargetOffsetMs The target live offset, in milliseconds, or {@link C#TIME_UNSET} to
+   *     use the media-defined default.
+   * @return This factory, for convenience.
+   */
+  public DefaultMediaSourceFactory setLiveTargetOffsetMs(long liveTargetOffsetMs) {
+    this.liveTargetOffsetMs = liveTargetOffsetMs;
+    return this;
+  }
+
+  /**
+   * Sets the minimum offset from the live edge for live streams, in milliseconds.
+   *
+   * @param liveMinOffsetMs The minimum allowed live offset, in milliseconds, or {@link
+   *     C#TIME_UNSET} to use the media-defined default.
+   * @return This factory, for convenience.
+   */
+  public DefaultMediaSourceFactory setLiveMinOffsetMs(long liveMinOffsetMs) {
+    this.liveMinOffsetMs = liveMinOffsetMs;
+    return this;
+  }
+
+  /**
+   * Sets the maximum offset from the live edge for live streams, in milliseconds.
+   *
+   * @param liveMaxOffsetMs The maximum allowed live offset, in milliseconds, or {@link
+   *     C#TIME_UNSET} to use the media-defined default.
+   * @return This factory, for convenience.
+   */
+  public DefaultMediaSourceFactory setLiveMaxOffsetMs(long liveMaxOffsetMs) {
+    this.liveMaxOffsetMs = liveMaxOffsetMs;
+    return this;
+  }
+
+  /**
+   * Sets the minimum playback speed for live streams.
+   *
+   * @param minSpeed The minimum factor by which playback can be sped up for live streams, or {@link
+   *     C#RATE_UNSET} to use the media-defined default.
+   * @return This factory, for convenience.
+   */
+  public DefaultMediaSourceFactory setLiveMinSpeed(float minSpeed) {
+    this.liveMinSpeed = minSpeed;
+    return this;
+  }
+
+  /**
+   * Sets the maximum playback speed for live streams.
+   *
+   * @param maxSpeed The maximum factor by which playback can be sped up for live streams, or {@link
+   *     C#RATE_UNSET} to use the media-defined default.
+   * @return This factory, for convenience.
+   */
+  public DefaultMediaSourceFactory setLiveMaxSpeed(float maxSpeed) {
+    this.liveMaxSpeed = maxSpeed;
     return this;
   }
 
@@ -243,14 +317,51 @@ public final class DefaultMediaSourceFactory implements MediaSourceFactory {
             : streamKeys);
     mediaSourceFactory.setLoadErrorHandlingPolicy(loadErrorHandlingPolicy);
 
+    // Make sure to retain the very same media item instance, if no value needs to be overridden.
+    if ((mediaItem.liveConfiguration.targetOffsetMs == C.TIME_UNSET
+            && liveTargetOffsetMs != C.TIME_UNSET)
+        || (mediaItem.liveConfiguration.minPlaybackSpeed == C.RATE_UNSET
+            && liveMinSpeed != C.RATE_UNSET)
+        || (mediaItem.liveConfiguration.maxPlaybackSpeed == C.RATE_UNSET
+            && liveMaxSpeed != C.RATE_UNSET)
+        || (mediaItem.liveConfiguration.minOffsetMs == C.TIME_UNSET
+            && liveMinOffsetMs != C.TIME_UNSET)
+        || (mediaItem.liveConfiguration.maxOffsetMs == C.TIME_UNSET
+            && liveMaxOffsetMs != C.TIME_UNSET)) {
+      mediaItem =
+          mediaItem
+              .buildUpon()
+              .setLiveTargetOffsetMs(
+                  mediaItem.liveConfiguration.targetOffsetMs == C.TIME_UNSET
+                      ? liveTargetOffsetMs
+                      : mediaItem.liveConfiguration.targetOffsetMs)
+              .setLiveMinPlaybackSpeed(
+                  mediaItem.liveConfiguration.minPlaybackSpeed == C.RATE_UNSET
+                      ? liveMinSpeed
+                      : mediaItem.liveConfiguration.minPlaybackSpeed)
+              .setLiveMaxPlaybackSpeed(
+                  mediaItem.liveConfiguration.maxPlaybackSpeed == C.RATE_UNSET
+                      ? liveMaxSpeed
+                      : mediaItem.liveConfiguration.maxPlaybackSpeed)
+              .setLiveMinOffsetMs(
+                  mediaItem.liveConfiguration.minOffsetMs == C.TIME_UNSET
+                      ? liveMinOffsetMs
+                      : mediaItem.liveConfiguration.minOffsetMs)
+              .setLiveMaxOffsetMs(
+                  mediaItem.liveConfiguration.maxOffsetMs == C.TIME_UNSET
+                      ? liveMaxOffsetMs
+                      : mediaItem.liveConfiguration.maxOffsetMs)
+              .build();
+    }
     MediaSource mediaSource = mediaSourceFactory.createMediaSource(mediaItem);
 
-    List<MediaItem.Subtitle> subtitles = mediaItem.playbackProperties.subtitles;
+    List<MediaItem.Subtitle> subtitles = castNonNull(mediaItem.playbackProperties).subtitles;
     if (!subtitles.isEmpty()) {
       MediaSource[] mediaSources = new MediaSource[subtitles.size() + 1];
       mediaSources[0] = mediaSource;
       SingleSampleMediaSource.Factory singleSampleSourceFactory =
-          new SingleSampleMediaSource.Factory(dataSourceFactory);
+          new SingleSampleMediaSource.Factory(dataSourceFactory)
+              .setLoadErrorHandlingPolicy(loadErrorHandlingPolicy);
       for (int i = 0; i < subtitles.size(); i++) {
         mediaSources[i + 1] =
             singleSampleSourceFactory.createMediaSource(
@@ -280,7 +391,9 @@ public final class DefaultMediaSourceFactory implements MediaSourceFactory {
 
   private MediaSource maybeWrapWithAdsMediaSource(MediaItem mediaItem, MediaSource mediaSource) {
     Assertions.checkNotNull(mediaItem.playbackProperties);
-    if (mediaItem.playbackProperties.adTagUri == null) {
+    @Nullable
+    MediaItem.AdsConfiguration adsConfiguration = mediaItem.playbackProperties.adsConfiguration;
+    if (adsConfiguration == null) {
       return mediaSource;
     }
     AdsLoaderProvider adsLoaderProvider = this.adsLoaderProvider;
@@ -292,14 +405,20 @@ public final class DefaultMediaSourceFactory implements MediaSourceFactory {
               + " setAdViewProvider.");
       return mediaSource;
     }
-    @Nullable
-    AdsLoader adsLoader = adsLoaderProvider.getAdsLoader(mediaItem.playbackProperties.adTagUri);
+    @Nullable AdsLoader adsLoader = adsLoaderProvider.getAdsLoader(adsConfiguration);
     if (adsLoader == null) {
-      Log.w(TAG, "Playing media without ads. No AdsLoader for provided adTagUri");
+      Log.w(TAG, "Playing media without ads, as no AdsLoader was provided.");
       return mediaSource;
     }
     return new AdsMediaSource(
-        mediaSource, /* adMediaSourceFactory= */ this, adsLoader, adViewProvider);
+        mediaSource,
+        new DataSpec(adsConfiguration.adTagUri),
+        /* adsId= */ adsConfiguration.adsId != null
+            ? adsConfiguration.adsId
+            : Pair.create(mediaItem.mediaId, adsConfiguration.adTagUri),
+        /* adMediaSourceFactory= */ this,
+        adsLoader,
+        adViewProvider);
   }
 
   private static SparseArray<MediaSourceFactory> loadDelegates(

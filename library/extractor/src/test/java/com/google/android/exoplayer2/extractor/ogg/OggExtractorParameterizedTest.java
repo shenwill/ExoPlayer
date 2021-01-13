@@ -16,7 +16,7 @@
 package com.google.android.exoplayer2.extractor.ogg;
 
 import com.google.android.exoplayer2.testutil.ExtractorAsserts;
-import java.util.List;
+import com.google.common.collect.ImmutableList;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.robolectric.ParameterizedRobolectricTestRunner;
@@ -32,7 +32,7 @@ import org.robolectric.ParameterizedRobolectricTestRunner.Parameters;
 public final class OggExtractorParameterizedTest {
 
   @Parameters(name = "{0}")
-  public static List<Object[]> params() {
+  public static ImmutableList<ExtractorAsserts.SimulationConfig> params() {
     return ExtractorAsserts.configs();
   }
 
@@ -60,11 +60,27 @@ public final class OggExtractorParameterizedTest {
         OggExtractor::new, "media/ogg/bear_vorbis.ogg", simulationConfig);
   }
 
-  // Ensure the extractor can handle non-contiguous pages by using a file with 10 bytes of garbage
-  // data before the start of the second page.
+  /**
+   * Ensure the extractor can handle non-contiguous pages by using a file with 10 bytes of garbage
+   * data before the start of the second page.
+   *
+   * <p>https://github.com/google/ExoPlayer/issues/7230
+   */
   @Test
   public void vorbisWithGapBeforeSecondPage() throws Exception {
     ExtractorAsserts.assertBehavior(
         OggExtractor::new, "media/ogg/bear_vorbis_gap.ogg", simulationConfig);
+  }
+
+  /**
+   * Use some very large Vorbis Comment metadata to create a packet that is larger than a single Ogg
+   * page.
+   *
+   * <p>https://github.com/google/ExoPlayer/issues/7992
+   */
+  @Test
+  public void vorbisWithPacketSpanningBetweenPages() throws Exception {
+    ExtractorAsserts.assertBehavior(
+        OggExtractor::new, "media/ogg/bear_vorbis_with_large_metadata.ogg", simulationConfig);
   }
 }

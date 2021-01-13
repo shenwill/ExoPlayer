@@ -27,6 +27,14 @@ import com.google.android.exoplayer2.Player.RepeatMode;
 public interface ControlDispatcher {
 
   /**
+   * Dispatches a {@link Player#prepare()} operation.
+   *
+   * @param player The {@link Player} to which the operation should be dispatched.
+   * @return True if the operation was dispatched. False if suppressed.
+   */
+  boolean dispatchPrepare(Player player);
+
+  /**
    * Dispatches a {@link Player#setPlayWhenReady(boolean)} operation.
    *
    * @param player The {@link Player} to which the operation should be dispatched.
@@ -104,6 +112,15 @@ public interface ControlDispatcher {
    * @return True if the operation was dispatched. False if suppressed.
    */
   boolean dispatchStop(Player player, boolean reset);
+
+  /**
+   * Dispatches a {@link Player#setPlaybackParameters(PlaybackParameters)} operation.
+   *
+   * @param player The {@link Player} to which the operation should be dispatched.
+   * @param playbackParameters The playback parameters.
+   * @return True if the operation was dispatched. False if suppressed.
+   */
+  boolean dispatchSetPlaybackParameters(Player player, PlaybackParameters playbackParameters);
 
   /** Returns {@code true} if rewind is enabled, {@code false} otherwise. */
   boolean isRewindEnabled();

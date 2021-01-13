@@ -341,7 +341,7 @@ public final class DownloadHelper {
    *     streams. This argument is required for adaptive streams and ignored for progressive
    *     streams.
    * @return A {@link DownloadHelper}.
-   * @throws IllegalStateException If the the corresponding module is missing for DASH, HLS or
+   * @throws IllegalStateException If the corresponding module is missing for DASH, HLS or
    *     SmoothStreaming media items.
    * @throws IllegalArgumentException If the {@code dataSourceFactory} is null for adaptive streams.
    */
@@ -370,7 +370,7 @@ public final class DownloadHelper {
    *     streams. This argument is required for adaptive streams and ignored for progressive
    *     streams.
    * @return A {@link DownloadHelper}.
-   * @throws IllegalStateException If the the corresponding module is missing for DASH, HLS or
+   * @throws IllegalStateException If the corresponding module is missing for DASH, HLS or
    *     SmoothStreaming media items.
    * @throws IllegalArgumentException If the {@code dataSourceFactory} is null for adaptive streams.
    */
@@ -401,7 +401,7 @@ public final class DownloadHelper {
    * @param drmSessionManager An optional {@link DrmSessionManager}. Used to help determine which
    *     tracks can be selected.
    * @return A {@link DownloadHelper}.
-   * @throws IllegalStateException If the the corresponding module is missing for DASH, HLS or
+   * @throws IllegalStateException If the corresponding module is missing for DASH, HLS or
    *     SmoothStreaming media items.
    * @throws IllegalArgumentException If the {@code dataSourceFactory} is null for adaptive streams.
    */
@@ -1003,7 +1003,7 @@ public final class DownloadHelper {
         // Ignore dynamic updates.
         return;
       }
-      if (timeline.getWindow(/* windowIndex= */ 0, new Timeline.Window()).isLive) {
+      if (timeline.getWindow(/* windowIndex= */ 0, new Timeline.Window()).isLive()) {
         downloadHelperHandler
             .obtainMessage(
                 DOWNLOAD_HELPER_CALLBACK_MESSAGE_FAILED,
@@ -1070,7 +1070,10 @@ public final class DownloadHelper {
 
       @Override
       public @NullableType TrackSelection[] createTrackSelections(
-          @NullableType Definition[] definitions, BandwidthMeter bandwidthMeter) {
+          @NullableType Definition[] definitions,
+          BandwidthMeter bandwidthMeter,
+          MediaPeriodId mediaPeriodId,
+          Timeline timeline) {
         @NullableType TrackSelection[] selections = new TrackSelection[definitions.length];
         for (int i = 0; i < definitions.length; i++) {
           selections[i] =

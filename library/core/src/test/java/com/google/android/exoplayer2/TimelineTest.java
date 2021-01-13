@@ -19,6 +19,7 @@ import static com.google.common.truth.Truth.assertThat;
 
 import androidx.annotation.Nullable;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
+import com.google.android.exoplayer2.MediaItem.LiveConfiguration;
 import com.google.android.exoplayer2.testutil.FakeTimeline;
 import com.google.android.exoplayer2.testutil.FakeTimeline.TimelineWindowDefinition;
 import com.google.android.exoplayer2.testutil.TimelineAsserts;
@@ -39,13 +40,12 @@ public class TimelineTest {
     Timeline timeline = new FakeTimeline(new TimelineWindowDefinition(1, 111));
     TimelineAsserts.assertWindowTags(timeline, 111);
     TimelineAsserts.assertPeriodCounts(timeline, 1);
-    TimelineAsserts.assertPreviousWindowIndices(
-        timeline, Player.REPEAT_MODE_OFF, false, C.INDEX_UNSET);
-    TimelineAsserts.assertPreviousWindowIndices(timeline, Player.REPEAT_MODE_ONE, false, 0);
-    TimelineAsserts.assertPreviousWindowIndices(timeline, Player.REPEAT_MODE_ALL, false, 0);
-    TimelineAsserts.assertNextWindowIndices(timeline, Player.REPEAT_MODE_OFF, false, C.INDEX_UNSET);
-    TimelineAsserts.assertNextWindowIndices(timeline, Player.REPEAT_MODE_ONE, false, 0);
-    TimelineAsserts.assertNextWindowIndices(timeline, Player.REPEAT_MODE_ALL, false, 0);
+    TimelineAsserts.assertPreviousWindowIndices(timeline, C.REPEAT_MODE_OFF, false, C.INDEX_UNSET);
+    TimelineAsserts.assertPreviousWindowIndices(timeline, C.REPEAT_MODE_ONE, false, 0);
+    TimelineAsserts.assertPreviousWindowIndices(timeline, C.REPEAT_MODE_ALL, false, 0);
+    TimelineAsserts.assertNextWindowIndices(timeline, C.REPEAT_MODE_OFF, false, C.INDEX_UNSET);
+    TimelineAsserts.assertNextWindowIndices(timeline, C.REPEAT_MODE_ONE, false, 0);
+    TimelineAsserts.assertNextWindowIndices(timeline, C.REPEAT_MODE_ALL, false, 0);
   }
 
   @Test
@@ -53,13 +53,12 @@ public class TimelineTest {
     Timeline timeline = new FakeTimeline(new TimelineWindowDefinition(5, 111));
     TimelineAsserts.assertWindowTags(timeline, 111);
     TimelineAsserts.assertPeriodCounts(timeline, 5);
-    TimelineAsserts.assertPreviousWindowIndices(
-        timeline, Player.REPEAT_MODE_OFF, false, C.INDEX_UNSET);
-    TimelineAsserts.assertPreviousWindowIndices(timeline, Player.REPEAT_MODE_ONE, false, 0);
-    TimelineAsserts.assertPreviousWindowIndices(timeline, Player.REPEAT_MODE_ALL, false, 0);
-    TimelineAsserts.assertNextWindowIndices(timeline, Player.REPEAT_MODE_OFF, false, C.INDEX_UNSET);
-    TimelineAsserts.assertNextWindowIndices(timeline, Player.REPEAT_MODE_ONE, false, 0);
-    TimelineAsserts.assertNextWindowIndices(timeline, Player.REPEAT_MODE_ALL, false, 0);
+    TimelineAsserts.assertPreviousWindowIndices(timeline, C.REPEAT_MODE_OFF, false, C.INDEX_UNSET);
+    TimelineAsserts.assertPreviousWindowIndices(timeline, C.REPEAT_MODE_ONE, false, 0);
+    TimelineAsserts.assertPreviousWindowIndices(timeline, C.REPEAT_MODE_ALL, false, 0);
+    TimelineAsserts.assertNextWindowIndices(timeline, C.REPEAT_MODE_OFF, false, C.INDEX_UNSET);
+    TimelineAsserts.assertNextWindowIndices(timeline, C.REPEAT_MODE_ONE, false, 0);
+    TimelineAsserts.assertNextWindowIndices(timeline, C.REPEAT_MODE_ALL, false, 0);
   }
 
   @Test
@@ -93,7 +92,7 @@ public class TimelineTest {
     assertThat(window).isNotEqualTo(otherWindow);
 
     otherWindow = new Timeline.Window();
-    otherWindow.isLive = true;
+    otherWindow.liveConfiguration = LiveConfiguration.UNSET;
     assertThat(window).isNotEqualTo(otherWindow);
 
     otherWindow = new Timeline.Window();
@@ -131,7 +130,7 @@ public class TimelineTest {
             window.elapsedRealtimeEpochOffsetMs,
             window.isSeekable,
             window.isDynamic,
-            window.isLive,
+            window.liveConfiguration,
             window.defaultPositionUs,
             window.durationUs,
             window.firstPeriodIndex,

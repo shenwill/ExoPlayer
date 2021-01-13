@@ -325,6 +325,17 @@ public final class SessionPlayerConnector extends SessionPlayer {
   }
 
   @Override
+  public ListenableFuture<PlayerResult> movePlaylistItem(int fromIndex, int toIndex) {
+    Assertions.checkArgument(fromIndex >= 0);
+    Assertions.checkArgument(toIndex >= 0);
+    ListenableFuture<PlayerResult> result =
+        playerCommandQueue.addCommand(
+            PlayerCommandQueue.COMMAND_CODE_PLAYER_MOVE_PLAYLIST_ITEM,
+            /* command= */ () -> player.movePlaylistItem(fromIndex, toIndex));
+    return result;
+  }
+
+  @Override
   public ListenableFuture<PlayerResult> skipToPreviousPlaylistItem() {
     ListenableFuture<PlayerResult> result =
         playerCommandQueue.addCommand(
@@ -437,8 +448,6 @@ public final class SessionPlayerConnector extends SessionPlayer {
         /* defaultValueWhenException= */ END_OF_PLAYLIST);
   }
 
-  // TODO(b/147706139): Call super.close() after updating media2-common to 1.1.0
-  @SuppressWarnings("MissingSuperCall")
   @Override
   public void close() {
     synchronized (stateLock) {
@@ -454,6 +463,7 @@ public final class SessionPlayerConnector extends SessionPlayer {
           player.close();
           return null;
         });
+    super.close();
   }
 
   // SessionPlayerConnector-specific functions.
@@ -559,12 +569,16 @@ public final class SessionPlayerConnector extends SessionPlayer {
     }
   }
 
+  // TODO(internal b/160846312): Remove this suppress warnings and call onCurrentMediaItemChanged
+  // with a null item once we depend on media2 1.2.0.
+  @SuppressWarnings("nullness:argument.type.incompatible")
   private void handlePlaylistChangedOnHandler() {
     List<MediaItem> currentPlaylist = player.getPlaylist();
     MediaMetadata playlistMetadata = player.getPlaylistMetadata();
 
     MediaItem currentMediaItem = player.getCurrentMediaItem();
-    boolean notifyCurrentMediaItem = !ObjectsCompat.equals(this.currentMediaItem, currentMediaItem);
+    boolean notifyCurrentMediaItem =
+        !ObjectsCompat.equals(this.currentMediaItem, currentMediaItem) && currentMediaItem != null;
     this.currentMediaItem = currentMediaItem;
 
     long currentPosition = getCurrentPosition();
@@ -573,15 +587,7 @@ public final class SessionPlayerConnector extends SessionPlayer {
           callback.onPlaylistChanged(
               SessionPlayerConnector.this, currentPlaylist, playlistMetadata);
           if (notifyCurrentMediaItem) {
-            Assertions.checkNotNull(
-                currentMediaItem, "PlaylistManager#currentMediaItem() cannot be changed to null");
-
             callback.onCurrentMediaItemChanged(SessionPlayerConnector.this, currentMediaItem);
-
-            // Workaround for MediaSession's issue that current media item change isn't propagated
-            // to the legacy controllers.
-            // TODO(b/160846312): Remove this workaround with media2 1.1.0-stable.
-            callback.onSeekCompleted(SessionPlayerConnector.this, currentPosition);
           }
         });
   }
@@ -596,11 +602,6 @@ public final class SessionPlayerConnector extends SessionPlayer {
     notifySessionPlayerCallback(
         callback -> {
           callback.onCurrentMediaItemChanged(SessionPlayerConnector.this, currentMediaItem);
-
-          // Workaround for MediaSession's issue that current media item change isn't propagated
-          // to the legacy controllers.
-          // TODO(b/160846312): Remove this workaround with media2 1.1.0-stable.
-          callback.onSeekCompleted(SessionPlayerConnector.this, currentPosition);
         });
   }
 
@@ -721,11 +722,6 @@ public final class SessionPlayerConnector extends SessionPlayer {
       notifySessionPlayerCallback(
           callback -> {
             callback.onCurrentMediaItemChanged(SessionPlayerConnector.this, mediaItem);
-
-            // Workaround for MediaSession's issue that current media item change isn't propagated
-            // to the legacy controllers.
-            // TODO(b/160846312): Remove this workaround with media2 1.1.0-stable.
-            callback.onSeekCompleted(SessionPlayerConnector.this, currentPosition);
           });
     }
 

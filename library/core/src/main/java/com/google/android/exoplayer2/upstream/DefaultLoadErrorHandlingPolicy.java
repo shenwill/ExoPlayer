@@ -19,6 +19,7 @@ import static java.lang.Math.min;
 
 import com.google.android.exoplayer2.C;
 import com.google.android.exoplayer2.ParserException;
+import com.google.android.exoplayer2.upstream.HttpDataSource.CleartextNotPermittedException;
 import com.google.android.exoplayer2.upstream.HttpDataSource.InvalidResponseCodeException;
 import com.google.android.exoplayer2.upstream.Loader.UnexpectedLoaderException;
 import java.io.FileNotFoundException;
@@ -72,9 +73,12 @@ public class DefaultLoadErrorHandlingPolicy implements LoadErrorHandlingPolicy {
     IOException exception = loadErrorInfo.exception;
     if (exception instanceof InvalidResponseCodeException) {
       int responseCode = ((InvalidResponseCodeException) exception).responseCode;
-      return responseCode == 404 // HTTP 404 Not Found.
+      return responseCode == 403 // HTTP 403 Forbidden.
+              || responseCode == 404 // HTTP 404 Not Found.
               || responseCode == 410 // HTTP 410 Gone.
               || responseCode == 416 // HTTP 416 Range Not Satisfiable.
+              || responseCode == 500 // HTTP 500 Internal Server Error.
+              || responseCode == 503 // HTTP 503 Service Unavailable.
           ? DEFAULT_TRACK_BLACKLIST_MS
           : C.TIME_UNSET;
     }
@@ -83,14 +87,16 @@ public class DefaultLoadErrorHandlingPolicy implements LoadErrorHandlingPolicy {
 
   /**
    * Retries for any exception that is not a subclass of {@link ParserException}, {@link
-   * FileNotFoundException} or {@link UnexpectedLoaderException}. The retry delay is calculated as
-   * {@code Math.min((errorCount - 1) * 1000, 5000)}.
+   * FileNotFoundException}, {@link CleartextNotPermittedException} or {@link
+   * UnexpectedLoaderException}. The retry delay is calculated as {@code Math.min((errorCount - 1) *
+   * 1000, 5000)}.
    */
   @Override
   public long getRetryDelayMsFor(LoadErrorInfo loadErrorInfo) {
     IOException exception = loadErrorInfo.exception;
     return exception instanceof ParserException
             || exception instanceof FileNotFoundException
+            || exception instanceof CleartextNotPermittedException
             || exception instanceof UnexpectedLoaderException
         ? C.TIME_UNSET
         : min((loadErrorInfo.errorCount - 1) * 1000, 5000);

@@ -315,8 +315,8 @@ import com.google.common.collect.ImmutableList;
   public boolean updateQueuedPeriods(
       Timeline timeline, long rendererPositionUs, long maxRendererReadPositionUs) {
     // TODO: Merge this into setTimeline so that the queue gets updated as soon as the new timeline
-    // is set, once all cases handled by ExoPlayerImplInternal.handleSourceInfoRefreshed can be
-    // handled here.
+    // is set, once all cases handled by ExoPlayerImplInternal.handleMediaSourceListInfoRefreshed
+    // can be handled here.
     MediaPeriodHolder previousPeriodHolder = null;
     MediaPeriodHolder periodHolder = playing;
     while (periodHolder != null) {
@@ -326,8 +326,8 @@ import com.google.common.collect.ImmutableList;
       MediaPeriodInfo newPeriodInfo;
       if (previousPeriodHolder == null) {
         // The id and start position of the first period have already been verified by
-        // ExoPlayerImplInternal.handleSourceInfoRefreshed. Just update duration, isLastInTimeline
-        // and isLastInPeriod flags.
+        // ExoPlayerImplInternal.handleMediaSourceListInfoRefreshed. Just update duration,
+        // isLastInTimeline and isLastInPeriod flags.
         newPeriodInfo = getUpdatedMediaPeriodInfo(timeline, oldPeriodInfo);
       } else {
         newPeriodInfo =
@@ -672,15 +672,13 @@ import com.google.common.collect.ImmutableList;
           period.getNextAdIndexToPlay(adGroupIndex, currentPeriodId.adIndexInAdGroup);
       if (nextAdIndexInAdGroup < adCountInCurrentAdGroup) {
         // Play the next ad in the ad group if it's available.
-        return !period.isAdAvailable(adGroupIndex, nextAdIndexInAdGroup)
-            ? null
-            : getMediaPeriodInfoForAd(
-                timeline,
-                currentPeriodId.periodUid,
-                adGroupIndex,
-                nextAdIndexInAdGroup,
-                mediaPeriodInfo.requestedContentPositionUs,
-                currentPeriodId.windowSequenceNumber);
+        return getMediaPeriodInfoForAd(
+            timeline,
+            currentPeriodId.periodUid,
+            adGroupIndex,
+            nextAdIndexInAdGroup,
+            mediaPeriodInfo.requestedContentPositionUs,
+            currentPeriodId.windowSequenceNumber);
       } else {
         // Play content from the ad group position.
         long startPositionUs = mediaPeriodInfo.requestedContentPositionUs;
@@ -720,15 +718,13 @@ import com.google.common.collect.ImmutableList;
             currentPeriodId.windowSequenceNumber);
       }
       int adIndexInAdGroup = period.getFirstAdIndexToPlay(nextAdGroupIndex);
-      return !period.isAdAvailable(nextAdGroupIndex, adIndexInAdGroup)
-          ? null
-          : getMediaPeriodInfoForAd(
-              timeline,
-              currentPeriodId.periodUid,
-              nextAdGroupIndex,
-              adIndexInAdGroup,
-              /* contentPositionUs= */ mediaPeriodInfo.durationUs,
-              currentPeriodId.windowSequenceNumber);
+      return getMediaPeriodInfoForAd(
+          timeline,
+          currentPeriodId.periodUid,
+          nextAdGroupIndex,
+          adIndexInAdGroup,
+          /* contentPositionUs= */ mediaPeriodInfo.durationUs,
+          currentPeriodId.windowSequenceNumber);
     }
   }
 
@@ -737,9 +733,6 @@ import com.google.common.collect.ImmutableList;
       Timeline timeline, MediaPeriodId id, long requestedContentPositionUs, long startPositionUs) {
     timeline.getPeriodByUid(id.periodUid, period);
     if (id.isAd()) {
-      if (!period.isAdAvailable(id.adGroupIndex, id.adIndexInAdGroup)) {
-        return null;
-      }
       return getMediaPeriodInfoForAd(
           timeline,
           id.periodUid,

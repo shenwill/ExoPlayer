@@ -94,7 +94,7 @@ public final class TrackSelectionDialog extends DialogFragment {
         /* titleId= */ R.string.track_selection_title,
         mappedTrackInfo,
         /* initialParameters = */ parameters,
-        /* allowAdaptiveSelections =*/ true,
+        /* allowAdaptiveSelections= */ true,
         /* allowMultipleOverrides= */ false,
         /* onClickListener= */ (dialog, which) -> {
           DefaultTrackSelector.ParametersBuilder builder = parameters.buildUpon();
@@ -354,7 +354,12 @@ public final class TrackSelectionDialog extends DialogFragment {
       trackSelectionView.setAllowMultipleOverrides(allowMultipleOverrides);
       trackSelectionView.setAllowAdaptiveSelections(allowAdaptiveSelections);
       trackSelectionView.init(
-          mappedTrackInfo, rendererIndex, isDisabled, overrides, /* listener= */ this);
+          mappedTrackInfo,
+          rendererIndex,
+          isDisabled,
+          overrides,
+          /* trackFormatComparator= */ null,
+          /* listener= */ this);
       return rootView;
     }
 
