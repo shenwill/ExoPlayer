@@ -31,6 +31,7 @@ import com.google.android.exoplayer2.audio.OpusUtil;
 import com.google.android.exoplayer2.drm.DrmInitData;
 import com.google.android.exoplayer2.extractor.GaplessInfoHolder;
 import com.google.android.exoplayer2.metadata.Metadata;
+import com.google.android.exoplayer2.metadata.mp4.SmtaMetadataEntry;
 import com.google.android.exoplayer2.util.Assertions;
 import com.google.android.exoplayer2.util.CodecSpecificDataUtil;
 import com.google.android.exoplayer2.util.Log;
@@ -145,28 +146,30 @@ import org.checkerframework.checker.nullness.compatqual.NullableType;
    *
    * @param udtaAtom The udta (user data) atom to decode.
    * @param isQuickTime True for QuickTime media. False otherwise.
-   * @return Parsed metadata, or null.
+   * @return A {@link Pair} containing the metadata from the meta child atom as first value (if
+   *     any), and the metadata from the smta child atom as second value (if any).
    */
-  @Nullable
-  public static Metadata parseUdta(Atom.LeafAtom udtaAtom, boolean isQuickTime) {
-    if (isQuickTime) {
-      // Meta boxes are regular boxes rather than full boxes in QuickTime. For now, don't try and
-      // decode one.
-      return null;
-    }
+  public static Pair<@NullableType Metadata, @NullableType Metadata> parseUdta(
+      Atom.LeafAtom udtaAtom, boolean isQuickTime) {
     ParsableByteArray udtaData = udtaAtom.data;
     udtaData.setPosition(Atom.HEADER_SIZE);
+    @Nullable Metadata metaMetadata = null;
+    @Nullable Metadata smtaMetadata = null;
     while (udtaData.bytesLeft() >= Atom.HEADER_SIZE) {
       int atomPosition = udtaData.getPosition();
       int atomSize = udtaData.readInt();
       int atomType = udtaData.readInt();
-      if (atomType == Atom.TYPE_meta) {
+      // Meta boxes are regular boxes rather than full boxes in QuickTime. Ignore them for now.
+      if (atomType == Atom.TYPE_meta && !isQuickTime) {
         udtaData.setPosition(atomPosition);
-        return parseUdtaMeta(udtaData, atomPosition + atomSize);
+        metaMetadata = parseUdtaMeta(udtaData, atomPosition + atomSize);
+      } else if (atomType == Atom.TYPE_smta) {
+        udtaData.setPosition(atomPosition);
+        smtaMetadata = parseSmta(udtaData, atomPosition + atomSize);
       }
       udtaData.setPosition(atomPosition + atomSize);
     }
-    return null;
+    return Pair.create(metaMetadata, smtaMetadata);
   }
 
   /**
@@ -384,9 +387,13 @@ import org.checkerframework.checker.nullness.compatqual.NullableType;
     }
 
     // Fixed sample size raw audio may need to be rechunked.
-    boolean isFixedSampleSizeRawAudio =
-        sampleSizeBox.isFixedSampleSize()
-            && MimeTypes.AUDIO_RAW.equals(track.format.sampleMimeType)
+    int fixedSampleSize = sampleSizeBox.getFixedSampleSize();
+    @Nullable String sampleMimeType = track.format.sampleMimeType;
+    boolean rechunkFixedSizeSamples =
+        fixedSampleSize != C.LENGTH_UNSET
+            && (MimeTypes.AUDIO_RAW.equals(sampleMimeType)
+                || MimeTypes.AUDIO_MLAW.equals(sampleMimeType)
+                || MimeTypes.AUDIO_ALAW.equals(sampleMimeType))
             && remainingTimestampDeltaChanges == 0
             && remainingTimestampOffsetChanges == 0
             && remainingSynchronizationSamples == 0;
@@ -399,15 +406,13 @@ import org.checkerframework.checker.nullness.compatqual.NullableType;
     long timestampTimeUnits = 0;
     long duration;
 
-    if (isFixedSampleSizeRawAudio) {
+    if (rechunkFixedSizeSamples) {
       long[] chunkOffsetsBytes = new long[chunkIterator.length];
       int[] chunkSampleCounts = new int[chunkIterator.length];
       while (chunkIterator.moveNext()) {
         chunkOffsetsBytes[chunkIterator.index] = chunkIterator.offset;
         chunkSampleCounts[chunkIterator.index] = chunkIterator.numSamples;
       }
-      int fixedSampleSize =
-          Util.getPcmFrameSize(track.format.pcmEncoding, track.format.channelCount);
       FixedSampleSizeRechunker.Results rechunkedResults =
           FixedSampleSizeRechunker.rechunk(
               fixedSampleSize, chunkOffsetsBytes, chunkSampleCounts, timestampDeltaInTimeUnits);
@@ -700,6 +705,37 @@ import org.checkerframework.checker.nullness.compatqual.NullableType;
   }
 
   /**
+   * Parses metadata from a Samsung smta atom.
+   *
+   * <p>See [Internal: b/150138465#comment76].
+   */
+  @Nullable
+  private static Metadata parseSmta(ParsableByteArray smta, int limit) {
+    smta.skipBytes(Atom.FULL_HEADER_SIZE);
+    while (smta.getPosition() < limit) {
+      int atomPosition = smta.getPosition();
+      int atomSize = smta.readInt();
+      int atomType = smta.readInt();
+      if (atomType == Atom.TYPE_saut) {
+        if (atomSize < 14) {
+          return null;
+        }
+        smta.skipBytes(5); // author (4), reserved = 0 (1).
+        int recordingMode = smta.readUnsignedByte();
+        if (recordingMode != 12 && recordingMode != 13) {
+          return null;
+        }
+        float captureFrameRate = recordingMode == 12 ? 240 : 120;
+        smta.skipBytes(1); // reserved = 1 (1).
+        int svcTemporalLayerCount = smta.readUnsignedByte();
+        return new Metadata(new SmtaMetadataEntry(captureFrameRate, svcTemporalLayerCount));
+      }
+      smta.setPosition(atomPosition + atomSize);
+    }
+    return null;
+  }
+
+  /**
    * Parses a mvhd atom (defined in ISO/IEC 14496-12), returning the timescale for the movie.
    *
    * @param mvhd Contents of the mvhd atom to be parsed.
@@ -851,6 +887,7 @@ import org.checkerframework.checker.nullness.compatqual.NullableType;
       if (childAtomType == Atom.TYPE_avc1
           || childAtomType == Atom.TYPE_avc3
           || childAtomType == Atom.TYPE_encv
+          || childAtomType == Atom.TYPE_m1v_
           || childAtomType == Atom.TYPE_mp4v
           || childAtomType == Atom.TYPE_hvc1
           || childAtomType == Atom.TYPE_hev1
@@ -878,6 +915,7 @@ import org.checkerframework.checker.nullness.compatqual.NullableType;
           || childAtomType == Atom.TYPE_lpcm
           || childAtomType == Atom.TYPE_sowt
           || childAtomType == Atom.TYPE_twos
+          || childAtomType == Atom.TYPE__mp2
           || childAtomType == Atom.TYPE__mp3
           || childAtomType == Atom.TYPE_alac
           || childAtomType == Atom.TYPE_alaw
@@ -891,6 +929,8 @@ import org.checkerframework.checker.nullness.compatqual.NullableType;
           || childAtomType == Atom.TYPE_c608) {
         parseTextSampleEntry(stsd, childAtomType, childStartPosition, childAtomSize, trackId,
             language, out);
+      } else if (childAtomType == Atom.TYPE_mett) {
+        parseMetaDataSampleEntry(stsd, childAtomType, childStartPosition, trackId, out);
       } else if (childAtomType == Atom.TYPE_camm) {
         out.format =
             new Format.Builder()
@@ -989,8 +1029,12 @@ import org.checkerframework.checker.nullness.compatqual.NullableType;
     //   drmInitData = null;
     // }
 
-    @Nullable List<byte[]> initializationData = null;
     @Nullable String mimeType = null;
+    if (atomType == Atom.TYPE_m1v_) {
+      mimeType = MimeTypes.VIDEO_MPEG;
+    }
+
+    @Nullable List<byte[]> initializationData = null;
     @Nullable String codecs = null;
     @Nullable byte[] projectionData = null;
     @C.StereoMode
@@ -1016,6 +1060,7 @@ import org.checkerframework.checker.nullness.compatqual.NullableType;
           pixelWidthHeightRatio = avcConfig.pixelWidthAspectRatio;
         }
         frameRate = avcConfig.frameRate;
+        codecs = avcConfig.codecs;
       } else if (childAtomType == Atom.TYPE_hvcC) {
         Assertions.checkState(mimeType == null);
         mimeType = MimeTypes.VIDEO_H265;
@@ -1023,6 +1068,7 @@ import org.checkerframework.checker.nullness.compatqual.NullableType;
         HevcConfig hevcConfig = HevcConfig.parse(parent);
         initializationData = hevcConfig.initializationData;
         out.nalUnitLengthFieldLength = hevcConfig.nalUnitLengthFieldLength;
+        codecs = hevcConfig.codecs;
       } else if (childAtomType == Atom.TYPE_dvcC || childAtomType == Atom.TYPE_dvvC) {
         @Nullable DolbyVisionConfig dolbyVisionConfig = DolbyVisionConfig.parse(parent);
         if (dolbyVisionConfig != null) {
@@ -1098,6 +1144,18 @@ import org.checkerframework.checker.nullness.compatqual.NullableType;
             .setDrmInitData(drmInitData)
             .setFrameRate(frameRate < 0 ? Format.NO_VALUE : frameRate)
             .build();
+  }
+
+  private static void parseMetaDataSampleEntry(
+      ParsableByteArray parent, int atomType, int position, int trackId, StsdData out) {
+    parent.setPosition(position + Atom.HEADER_SIZE + StsdData.STSD_HEADER_SIZE);
+    if (atomType == Atom.TYPE_mett) {
+      parent.readNullTerminatedString(); // Skip optional content_encoding
+      @Nullable String mimeType = parent.readNullTerminatedString();
+      if (mimeType != null) {
+        out.format = new Format.Builder().setId(trackId).setSampleMimeType(mimeType).build();
+      }
+    }
   }
 
   /**
@@ -1232,7 +1290,7 @@ import org.checkerframework.checker.nullness.compatqual.NullableType;
     } else if (atomType == Atom.TYPE_twos) {
       mimeType = MimeTypes.AUDIO_RAW;
       pcmEncoding = C.ENCODING_PCM_16BIT_BIG_ENDIAN;
-    } else if (atomType == Atom.TYPE__mp3) {
+    } else if (atomType == Atom.TYPE__mp2 || atomType == Atom.TYPE__mp3) {
       mimeType = MimeTypes.AUDIO_MPEG;
     } else if (atomType == Atom.TYPE_alac) {
       mimeType = MimeTypes.AUDIO_ALAC;
@@ -1649,16 +1707,11 @@ import org.checkerframework.checker.nullness.compatqual.NullableType;
      */
     int getSampleCount();
 
-    /**
-     * Returns the size for the next sample.
-     */
+    /** Returns the size of each sample if fixed, or {@link C#LENGTH_UNSET} otherwise. */
+    int getFixedSampleSize();
+
+    /** Returns the size for the next sample. */
     int readNextSampleSize();
-
-    /**
-     * Returns whether samples have a fixed size.
-     */
-    boolean isFixedSampleSize();
-
   }
 
   /**
@@ -1673,7 +1726,8 @@ import org.checkerframework.checker.nullness.compatqual.NullableType;
     public StszSampleSizeBox(Atom.LeafAtom stszAtom) {
       data = stszAtom.data;
       data.setPosition(Atom.FULL_HEADER_SIZE);
-      fixedSampleSize = data.readUnsignedIntToInt();
+      int fixedSampleSize = data.readUnsignedIntToInt();
+      this.fixedSampleSize = fixedSampleSize == 0 ? C.LENGTH_UNSET : fixedSampleSize;
       sampleCount = data.readUnsignedIntToInt();
     }
 
@@ -1683,15 +1737,14 @@ import org.checkerframework.checker.nullness.compatqual.NullableType;
     }
 
     @Override
-    public int readNextSampleSize() {
-      return fixedSampleSize == 0 ? data.readUnsignedIntToInt() : fixedSampleSize;
+    public int getFixedSampleSize() {
+      return fixedSampleSize;
     }
 
     @Override
-    public boolean isFixedSampleSize() {
-      return fixedSampleSize != 0;
+    public int readNextSampleSize() {
+      return fixedSampleSize == C.LENGTH_UNSET ? data.readUnsignedIntToInt() : fixedSampleSize;
     }
-
   }
 
   /**
@@ -1720,6 +1773,11 @@ import org.checkerframework.checker.nullness.compatqual.NullableType;
     }
 
     @Override
+    public int getFixedSampleSize() {
+      return C.LENGTH_UNSET;
+    }
+
+    @Override
     public int readNextSampleSize() {
       if (fieldSize == 8) {
         return data.readUnsignedByte();
@@ -1738,12 +1796,6 @@ import org.checkerframework.checker.nullness.compatqual.NullableType;
         }
       }
     }
-
-    @Override
-    public boolean isFixedSampleSize() {
-      return false;
-    }
-
   }
 
 }

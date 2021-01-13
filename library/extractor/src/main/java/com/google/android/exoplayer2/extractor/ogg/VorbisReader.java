@@ -15,6 +15,9 @@
  */
 package com.google.android.exoplayer2.extractor.ogg;
 
+import static com.google.android.exoplayer2.util.Assertions.checkNotNull;
+import static com.google.android.exoplayer2.util.Assertions.checkStateNotNull;
+
 import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
 import com.google.android.exoplayer2.Format;
@@ -25,6 +28,8 @@ import com.google.android.exoplayer2.util.MimeTypes;
 import com.google.android.exoplayer2.util.ParsableByteArray;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
+import org.checkerframework.checker.nullness.qual.EnsuresNonNullIf;
 
 /**
  * {@link StreamReader} to extract Vorbis data out of Ogg byte stream.
@@ -73,7 +78,7 @@ import java.util.ArrayList;
     }
 
     // ... we need to decode the block size
-    int packetBlockSize = decodeBlockSize(packet.getData()[0], vorbisSetup);
+    int packetBlockSize = decodeBlockSize(packet.getData()[0], checkStateNotNull(vorbisSetup));
     // a packet contains samples produced from overlapping the previous and current frame data
     // (https://www.xiph.org/vorbis/doc/Vorbis_I_spec.html#x1-350001.3.2)
     int samplesInPacket = seenFirstAudioPacket ? (packetBlockSize + previousPacketBlockSize) / 4
@@ -88,9 +93,11 @@ import java.util.ArrayList;
   }
 
   @Override
+  @EnsuresNonNullIf(expression = "#3.format", result = false)
   protected boolean readHeaders(ParsableByteArray packet, long position, SetupData setupData)
       throws IOException {
     if (vorbisSetup != null) {
+      checkNotNull(setupData.format);
       return false;
     }
 
@@ -98,6 +105,7 @@ import java.util.ArrayList;
     if (vorbisSetup == null) {
       return true;
     }
+    VorbisSetup vorbisSetup = this.vorbisSetup;
 
     VorbisUtil.VorbisIdHeader idHeader = vorbisSetup.idHeader;
 
@@ -130,6 +138,8 @@ import java.util.ArrayList;
       commentHeader = VorbisUtil.readVorbisCommentHeader(scratch);
       return null;
     }
+    VorbisUtil.VorbisIdHeader vorbisIdHeader = this.vorbisIdHeader;
+    VorbisUtil.CommentHeader commentHeader = this.commentHeader;
 
     // the third packet contains the setup header
     byte[] setupHeaderData = new byte[scratch.limit()];
@@ -160,8 +170,11 @@ import java.util.ArrayList;
   @VisibleForTesting
   /* package */ static void appendNumberOfSamples(
       ParsableByteArray buffer, long packetSampleCount) {
-
-    buffer.setLimit(buffer.limit() + 4);
+    if (buffer.capacity() < buffer.limit() + 4) {
+      buffer.reset(Arrays.copyOf(buffer.getData(), buffer.limit() + 4));
+    } else {
+      buffer.setLimit(buffer.limit() + 4);
+    }
     // The vorbis decoder expects the number of samples in the packet
     // to be appended to the audio data as an int32
     byte[] data = buffer.getData();

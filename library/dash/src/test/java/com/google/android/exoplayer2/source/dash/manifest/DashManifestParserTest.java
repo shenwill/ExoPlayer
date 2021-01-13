@@ -42,7 +42,7 @@ import org.xmlpull.v1.XmlPullParserFactory;
 @RunWith(AndroidJUnit4.class)
 public class DashManifestParserTest {
 
-  private static final String SAMPLE_MPD = "media/mpd/sample_mpd";
+  private static final String SAMPLE_MPD_LIVE = "media/mpd/sample_mpd_live";
   private static final String SAMPLE_MPD_UNKNOWN_MIME_TYPE =
       "media/mpd/sample_mpd_unknown_mime_type";
   private static final String SAMPLE_MPD_SEGMENT_TEMPLATE = "media/mpd/sample_mpd_segment_template";
@@ -57,6 +57,12 @@ public class DashManifestParserTest {
       "media/mpd/sample_mpd_availabilityTimeOffset_segmentTemplate";
   private static final String SAMPLE_MPD_AVAILABILITY_TIME_OFFSET_SEGMENT_LIST =
       "media/mpd/sample_mpd_availabilityTimeOffset_segmentList";
+  private static final String SAMPLE_MPD_SERVICE_DESCRIPTION_LOW_LATENCY =
+      "media/mpd/sample_mpd_service_description_low_latency";
+  private static final String SAMPLE_MPD_SERVICE_DESCRIPTION_LOW_LATENCY_ONLY_PLAYBACK_RATES =
+      "media/mpd/sample_mpd_service_description_low_latency_only_playback_rates";
+  private static final String SAMPLE_MPD_SERVICE_DESCRIPTION_LOW_LATENCY_ONLY_TARGET_LATENCY =
+      "media/mpd/sample_mpd_service_description_low_latency_only_target_latency";
 
   private static final String NEXT_TAG_NAME = "Next";
   private static final String NEXT_TAG = "<" + NEXT_TAG_NAME + "/>";
@@ -67,7 +73,7 @@ public class DashManifestParserTest {
     DashManifestParser parser = new DashManifestParser();
     parser.parse(
         Uri.parse("https://example.com/test.mpd"),
-        TestUtil.getInputStream(ApplicationProvider.getApplicationContext(), SAMPLE_MPD));
+        TestUtil.getInputStream(ApplicationProvider.getApplicationContext(), SAMPLE_MPD_LIVE));
     parser.parse(
         Uri.parse("https://example.com/test.mpd"),
         TestUtil.getInputStream(
@@ -178,7 +184,7 @@ public class DashManifestParserTest {
     DashManifest manifest =
         parser.parse(
             Uri.parse("https://example.com/test.mpd"),
-            TestUtil.getInputStream(ApplicationProvider.getApplicationContext(), SAMPLE_MPD));
+            TestUtil.getInputStream(ApplicationProvider.getApplicationContext(), SAMPLE_MPD_LIVE));
     ProgramInformation expectedProgramInformation =
         new ProgramInformation(
             "MediaTitle", "MediaSource", "MediaCopyright", "www.example.com", "enUs");
@@ -558,6 +564,78 @@ public class DashManifestParserTest {
     assertThat(getAvailabilityTimeOffsetUs(adaptationSets0.get(2))).isEqualTo(1_230_000);
     assertThat(getAvailabilityTimeOffsetUs(adaptationSets0.get(3))).isEqualTo(100_000);
     assertThat(getAvailabilityTimeOffsetUs(adaptationSets1.get(0))).isEqualTo(9_999_000);
+  }
+
+  @Test
+  public void serviceDescriptionElement_allValuesSet() throws IOException {
+    DashManifestParser parser = new DashManifestParser();
+
+    DashManifest manifest =
+        parser.parse(
+            Uri.parse("https://example.com/test.mpd"),
+            TestUtil.getInputStream(
+                ApplicationProvider.getApplicationContext(),
+                SAMPLE_MPD_SERVICE_DESCRIPTION_LOW_LATENCY));
+
+    assertThat(manifest.serviceDescription).isNotNull();
+    assertThat(manifest.serviceDescription.targetOffsetMs).isEqualTo(20_000);
+    assertThat(manifest.serviceDescription.minOffsetMs).isEqualTo(1_000);
+    assertThat(manifest.serviceDescription.maxOffsetMs).isEqualTo(30_000);
+    assertThat(manifest.serviceDescription.minPlaybackSpeed).isEqualTo(0.1f);
+    assertThat(manifest.serviceDescription.maxPlaybackSpeed).isEqualTo(99f);
+  }
+
+  @Test
+  public void serviceDescriptionElement_onlyPlaybackRates_latencyValuesUnset() throws IOException {
+    DashManifestParser parser = new DashManifestParser();
+
+    DashManifest manifest =
+        parser.parse(
+            Uri.parse("https://example.com/test.mpd"),
+            TestUtil.getInputStream(
+                ApplicationProvider.getApplicationContext(),
+                SAMPLE_MPD_SERVICE_DESCRIPTION_LOW_LATENCY_ONLY_PLAYBACK_RATES));
+
+    assertThat(manifest.serviceDescription).isNotNull();
+    assertThat(manifest.serviceDescription.targetOffsetMs).isEqualTo(C.TIME_UNSET);
+    assertThat(manifest.serviceDescription.minOffsetMs).isEqualTo(C.TIME_UNSET);
+    assertThat(manifest.serviceDescription.maxOffsetMs).isEqualTo(C.TIME_UNSET);
+    assertThat(manifest.serviceDescription.minPlaybackSpeed).isEqualTo(0.1f);
+    assertThat(manifest.serviceDescription.maxPlaybackSpeed).isEqualTo(99f);
+  }
+
+  @Test
+  public void serviceDescriptionElement_onlyTargetLatency_playbackRatesAndMinMaxLatencyUnset()
+      throws IOException {
+    DashManifestParser parser = new DashManifestParser();
+
+    DashManifest manifest =
+        parser.parse(
+            Uri.parse("https://example.com/test.mpd"),
+            TestUtil.getInputStream(
+                ApplicationProvider.getApplicationContext(),
+                SAMPLE_MPD_SERVICE_DESCRIPTION_LOW_LATENCY_ONLY_TARGET_LATENCY));
+
+    assertThat(manifest.serviceDescription).isNotNull();
+    assertThat(manifest.serviceDescription.targetOffsetMs).isEqualTo(20_000);
+    assertThat(manifest.serviceDescription.minOffsetMs).isEqualTo(C.TIME_UNSET);
+    assertThat(manifest.serviceDescription.maxOffsetMs).isEqualTo(C.TIME_UNSET);
+    assertThat(manifest.serviceDescription.minPlaybackSpeed).isEqualTo(C.RATE_UNSET);
+    assertThat(manifest.serviceDescription.maxPlaybackSpeed).isEqualTo(C.RATE_UNSET);
+  }
+
+  @Test
+  public void serviceDescriptionElement_noServiceDescription_isNullInManifest() throws IOException {
+    DashManifestParser parser = new DashManifestParser();
+
+    DashManifest manifest =
+        parser.parse(
+            Uri.parse("https://example.com/test.mpd"),
+            TestUtil.getInputStream(
+                ApplicationProvider.getApplicationContext(),
+                SAMPLE_MPD_AVAILABILITY_TIME_OFFSET_SEGMENT_LIST));
+
+    assertThat(manifest.serviceDescription).isNull();
   }
 
   private static List<Descriptor> buildCea608AccessibilityDescriptors(String value) {

@@ -125,6 +125,8 @@ public final class DefaultHlsExtractorFactory implements HlsExtractorFactory {
         return new BundledHlsMediaChunkExtractor(extractor, format, timestampAdjuster);
       }
       if (fileType == FileTypes.TS) {
+        // Fall back on TsExtractor to handle TS streams with an EXT-X-MAP tag. See
+        // https://github.com/google/ExoPlayer/issues/8219.
         fallBackExtractor = extractor;
       }
     }
@@ -199,10 +201,10 @@ public final class DefaultHlsExtractorFactory implements HlsExtractorFactory {
       // Sometimes AAC and H264 streams are declared in TS chunks even though they don't really
       // exist. If we know from the codec attribute that they don't exist, then we can
       // explicitly ignore them even if they're declared.
-      if (!MimeTypes.AUDIO_AAC.equals(MimeTypes.getAudioMediaMimeType(codecs))) {
+      if (!MimeTypes.containsCodecsCorrespondingToMimeType(codecs, MimeTypes.AUDIO_AAC)) {
         payloadReaderFactoryFlags |= DefaultTsPayloadReaderFactory.FLAG_IGNORE_AAC_STREAM;
       }
-      if (!MimeTypes.VIDEO_H264.equals(MimeTypes.getVideoMediaMimeType(codecs))) {
+      if (!MimeTypes.containsCodecsCorrespondingToMimeType(codecs, MimeTypes.VIDEO_H264)) {
         payloadReaderFactoryFlags |= DefaultTsPayloadReaderFactory.FLAG_IGNORE_H264_STREAM;
       }
     }

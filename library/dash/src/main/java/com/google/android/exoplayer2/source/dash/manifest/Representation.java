@@ -91,7 +91,12 @@ public abstract class Representation {
       SegmentBase segmentBase,
       @Nullable List<Descriptor> inbandEventStreams) {
     return newInstance(
-        revisionId, format, baseUrl, segmentBase, inbandEventStreams, /* cacheKey= */ null);
+        revisionId,
+        format,
+        baseUrl,
+        segmentBase,
+        inbandEventStreams,
+        /* cacheKey= */ null);
   }
 
   /**
@@ -279,6 +284,8 @@ public abstract class Representation {
     @VisibleForTesting /* package */ final MultiSegmentBase segmentBase;
 
     /**
+     * Creates the multi-segment Representation.
+     *
      * @param revisionId Identifies the revision of the content.
      * @param format The format of the representation.
      * @param baseUrl The base URL of the representation.
@@ -340,8 +347,23 @@ public abstract class Representation {
     }
 
     @Override
+    public long getFirstAvailableSegmentNum(long periodDurationUs, long nowUnixTimeUs) {
+      return segmentBase.getFirstAvailableSegmentNum(periodDurationUs, nowUnixTimeUs);
+    }
+
+    @Override
     public int getSegmentCount(long periodDurationUs) {
       return segmentBase.getSegmentCount(periodDurationUs);
+    }
+
+    @Override
+    public int getAvailableSegmentCount(long periodDurationUs, long nowUnixTimeUs) {
+      return segmentBase.getAvailableSegmentCount(periodDurationUs, nowUnixTimeUs);
+    }
+
+    @Override
+    public long getNextSegmentAvailableTimeUs(long periodDurationUs, long nowUnixTimeUs) {
+      return segmentBase.getNextSegmentAvailableTimeUs(periodDurationUs, nowUnixTimeUs);
     }
 
     @Override

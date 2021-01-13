@@ -15,6 +15,14 @@
  */
 package com.google.android.exoplayer2.ui;
 
+import static com.google.android.exoplayer2.Player.EVENT_IS_PLAYING_CHANGED;
+import static com.google.android.exoplayer2.Player.EVENT_PLAYBACK_STATE_CHANGED;
+import static com.google.android.exoplayer2.Player.EVENT_PLAY_WHEN_READY_CHANGED;
+import static com.google.android.exoplayer2.Player.EVENT_POSITION_DISCONTINUITY;
+import static com.google.android.exoplayer2.Player.EVENT_REPEAT_MODE_CHANGED;
+import static com.google.android.exoplayer2.Player.EVENT_SHUFFLE_MODE_ENABLED_CHANGED;
+import static com.google.android.exoplayer2.Player.EVENT_TIMELINE_CHANGED;
+
 import android.annotation.SuppressLint;
 import android.content.Context;
 import android.content.res.Resources;
@@ -38,6 +46,7 @@ import com.google.android.exoplayer2.DefaultControlDispatcher;
 import com.google.android.exoplayer2.ExoPlayerLibraryInfo;
 import com.google.android.exoplayer2.PlaybackPreparer;
 import com.google.android.exoplayer2.Player;
+import com.google.android.exoplayer2.Player.Events;
 import com.google.android.exoplayer2.Player.State;
 import com.google.android.exoplayer2.Timeline;
 import com.google.android.exoplayer2.util.Assertions;
@@ -506,12 +515,6 @@ public class PlayerControlView extends FrameLayout {
         resources.getString(R.string.exo_controls_shuffle_off_description);
   }
 
-  @SuppressWarnings("ResourceType")
-  private static @RepeatModeUtil.RepeatToggleModes int getRepeatToggleModes(
-      TypedArray a, @RepeatModeUtil.RepeatToggleModes int repeatToggleModes) {
-    return a.getInt(R.styleable.PlayerControlView_repeat_toggle_modes, repeatToggleModes);
-  }
-
   /**
    * Returns the {@link Player} currently being controlled by this view, or null if no player is
    * set.
@@ -611,11 +614,15 @@ public class PlayerControlView extends FrameLayout {
   }
 
   /**
-   * Sets the {@link PlaybackPreparer}.
-   *
-   * @param playbackPreparer The {@link PlaybackPreparer}, or null to remove the current playback
-   *     preparer.
+   * @deprecated Use {@link #setControlDispatcher(ControlDispatcher)} instead. The view calls {@link
+   *     ControlDispatcher#dispatchPrepare(Player)} instead of {@link
+   *     PlaybackPreparer#preparePlayback()}. The {@link DefaultControlDispatcher} that the view
+   *     uses by default, calls {@link Player#prepare()}. If you wish to customize this behaviour,
+   *     you can provide a custom implementation of {@link
+   *     ControlDispatcher#dispatchPrepare(Player)}.
    */
+  @SuppressWarnings("deprecation")
+  @Deprecated
   public void setPlaybackPreparer(@Nullable PlaybackPreparer playbackPreparer) {
     this.playbackPreparer = playbackPreparer;
   }
@@ -1254,11 +1261,14 @@ public class PlayerControlView extends FrameLayout {
     }
   }
 
+  @SuppressWarnings("deprecation")
   private void dispatchPlay(Player player) {
     @State int state = player.getPlaybackState();
     if (state == Player.STATE_IDLE) {
       if (playbackPreparer != null) {
         playbackPreparer.preparePlayback();
+      } else {
+        controlDispatcher.dispatchPrepare(player);
       }
     } else if (state == Player.STATE_ENDED) {
       seekTo(player, player.getCurrentWindowIndex(), C.TIME_UNSET);
@@ -1302,6 +1312,12 @@ public class PlayerControlView extends FrameLayout {
     return true;
   }
 
+  @SuppressWarnings("ResourceType")
+  private static @RepeatModeUtil.RepeatToggleModes int getRepeatToggleModes(
+      TypedArray a, @RepeatModeUtil.RepeatToggleModes int defaultValue) {
+    return a.getInt(R.styleable.PlayerControlView_repeat_toggle_modes, defaultValue);
+  }
+
   private final class ComponentListener
       implements Player.EventListener, TimeBar.OnScrubListener, OnClickListener {
 
@@ -1329,45 +1345,30 @@ public class PlayerControlView extends FrameLayout {
     }
 
     @Override
-    public void onPlaybackStateChanged(@Player.State int playbackState) {
-      updatePlayPauseButton();
-      updateProgress();
-    }
-
-    @Override
-    public void onPlayWhenReadyChanged(
-        boolean playWhenReady, @Player.PlayWhenReadyChangeReason int reason) {
-      updatePlayPauseButton();
-      updateProgress();
-    }
-
-    @Override
-    public void onIsPlayingChanged(boolean isPlaying) {
-      updateProgress();
-    }
-
-    @Override
-    public void onRepeatModeChanged(int repeatMode) {
-      updateRepeatModeButton();
-      updateNavigation();
-    }
-
-    @Override
-    public void onShuffleModeEnabledChanged(boolean shuffleModeEnabled) {
-      updateShuffleButton();
-      updateNavigation();
-    }
-
-    @Override
-    public void onPositionDiscontinuity(@Player.DiscontinuityReason int reason) {
-      updateNavigation();
-      updateTimeline();
-    }
-
-    @Override
-    public void onTimelineChanged(Timeline timeline, @Player.TimelineChangeReason int reason) {
-      updateNavigation();
-      updateTimeline();
+    public void onEvents(Player player, Events events) {
+      if (events.containsAny(EVENT_PLAYBACK_STATE_CHANGED, EVENT_PLAY_WHEN_READY_CHANGED)) {
+        updatePlayPauseButton();
+      }
+      if (events.containsAny(
+          EVENT_PLAYBACK_STATE_CHANGED, EVENT_PLAY_WHEN_READY_CHANGED, EVENT_IS_PLAYING_CHANGED)) {
+        updateProgress();
+      }
+      if (events.contains(EVENT_REPEAT_MODE_CHANGED)) {
+        updateRepeatModeButton();
+      }
+      if (events.contains(EVENT_SHUFFLE_MODE_ENABLED_CHANGED)) {
+        updateShuffleButton();
+      }
+      if (events.containsAny(
+          EVENT_REPEAT_MODE_CHANGED,
+          EVENT_SHUFFLE_MODE_ENABLED_CHANGED,
+          EVENT_POSITION_DISCONTINUITY,
+          EVENT_TIMELINE_CHANGED)) {
+        updateNavigation();
+      }
+      if (events.containsAny(EVENT_POSITION_DISCONTINUITY, EVENT_TIMELINE_CHANGED)) {
+        updateTimeline();
+      }
     }
 
     @Override

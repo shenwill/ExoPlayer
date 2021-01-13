@@ -16,7 +16,7 @@
 package com.google.android.exoplayer2.extractor.flv;
 
 import com.google.android.exoplayer2.testutil.ExtractorAsserts;
-import java.util.List;
+import com.google.common.collect.ImmutableList;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.robolectric.ParameterizedRobolectricTestRunner;
@@ -28,7 +28,7 @@ import org.robolectric.ParameterizedRobolectricTestRunner.Parameters;
 public final class FlvExtractorTest {
 
   @Parameters(name = "{0}")
-  public static List<Object[]> params() {
+  public static ImmutableList<ExtractorAsserts.SimulationConfig> params() {
     return ExtractorAsserts.configs();
   }
 
@@ -37,5 +37,11 @@ public final class FlvExtractorTest {
   @Test
   public void sample() throws Exception {
     ExtractorAsserts.assertBehavior(FlvExtractor::new, "media/flv/sample.flv", simulationConfig);
+  }
+
+  @Test
+  public void sampleSeekable() throws Exception {
+    ExtractorAsserts.assertBehavior(
+        FlvExtractor::new, "media/flv/sample-with-key-frame-index.flv", simulationConfig);
   }
 }

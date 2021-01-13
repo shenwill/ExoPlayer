@@ -15,9 +15,7 @@
  */
 package com.google.android.exoplayer2.source;
 
-import static com.google.android.exoplayer2.ExoPlayerLibraryInfo.DEFAULT_USER_AGENT;
 import static com.google.android.exoplayer2.drm.DefaultDrmSessionManager.MODE_PLAYBACK;
-import static com.google.android.exoplayer2.util.Util.castNonNull;
 
 import androidx.annotation.Nullable;
 import com.google.android.exoplayer2.MediaItem;
@@ -25,6 +23,7 @@ import com.google.android.exoplayer2.drm.DefaultDrmSessionManager;
 import com.google.android.exoplayer2.drm.DrmSessionManager;
 import com.google.android.exoplayer2.drm.FrameworkMediaDrm;
 import com.google.android.exoplayer2.drm.HttpMediaDrmCallback;
+import com.google.android.exoplayer2.upstream.DefaultHttpDataSource;
 import com.google.android.exoplayer2.upstream.DefaultHttpDataSourceFactory;
 import com.google.android.exoplayer2.upstream.HttpDataSource;
 import com.google.android.exoplayer2.util.Assertions;
@@ -68,16 +67,16 @@ public final class MediaSourceDrmHelper {
     Assertions.checkNotNull(mediaItem.playbackProperties);
     @Nullable
     MediaItem.DrmConfiguration drmConfiguration = mediaItem.playbackProperties.drmConfiguration;
-    if (drmConfiguration == null || drmConfiguration.licenseUri == null || Util.SDK_INT < 18) {
+    if (drmConfiguration == null || Util.SDK_INT < 18) {
       return DrmSessionManager.getDummyDrmSessionManager();
     }
     HttpDataSource.Factory dataSourceFactory =
         drmHttpDataSourceFactory != null
             ? drmHttpDataSourceFactory
-            : new DefaultHttpDataSourceFactory(userAgent != null ? userAgent : DEFAULT_USER_AGENT);
+            : new DefaultHttpDataSource.Factory().setUserAgent(userAgent);
     HttpMediaDrmCallback httpDrmCallback =
         new HttpMediaDrmCallback(
-            castNonNull(drmConfiguration.licenseUri).toString(),
+            drmConfiguration.licenseUri == null ? null : drmConfiguration.licenseUri.toString(),
             drmConfiguration.forceDefaultLicenseUri,
             dataSourceFactory);
     for (Map.Entry<String, String> entry : drmConfiguration.requestHeaders.entrySet()) {
