@@ -78,6 +78,11 @@ public final class FakeExtractorOutput implements ExtractorOutput, Dumper.Dumpab
     this.seekMap = seekMap;
   }
 
+  @Override
+  public void chapterStartTimes(long[] startTimes) {
+
+  }
+
   public void clearTrackOutputs() {
     for (int i = 0; i < numberOfTracks; i++) {
       trackOutputs.valueAt(i).clear();
