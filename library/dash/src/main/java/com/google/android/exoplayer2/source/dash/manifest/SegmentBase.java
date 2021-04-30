@@ -15,7 +15,12 @@
  */
 package com.google.android.exoplayer2.source.dash.manifest;
 
+import static com.google.android.exoplayer2.source.dash.DashSegmentIndex.INDEX_UNBOUNDED;
+import static java.lang.Math.max;
+import static java.lang.Math.min;
+
 import androidx.annotation.Nullable;
+import androidx.annotation.VisibleForTesting;
 import com.google.android.exoplayer2.C;
 import com.google.android.exoplayer2.source.dash.DashSegmentIndex;
 import com.google.android.exoplayer2.util.Util;
@@ -26,7 +31,7 @@ import java.util.List;
  */
 public abstract class SegmentBase {
 
-  /* package */ @Nullable final RangedUri initialization;
+  @Nullable /* package */ final RangedUri initialization;
   /* package */ final long timescale;
   /* package */ final long presentationTimeOffset;
 
@@ -116,7 +121,18 @@ public abstract class SegmentBase {
 
     /* package */ final long startNumber;
     /* package */ final long duration;
-    /* package */ @Nullable final List<SegmentTimelineElement> segmentTimeline;
+    @Nullable /* package */ final List<SegmentTimelineElement> segmentTimeline;
+    private final long timeShiftBufferDepthUs;
+    private final long periodStartUnixTimeUs;
+
+    /**
+     * Offset to the current realtime at which segments become available, in microseconds, or {@link
+     * C#TIME_UNSET} if all segments are available immediately.
+     *
+     * <p>Segments will be available once their end time &le; currentRealTime +
+     * availabilityTimeOffset.
+     */
+    @VisibleForTesting /* package */ final long availabilityTimeOffsetUs;
 
     /**
      * @param initialization A {@link RangedUri} corresponding to initialization data, if such data
@@ -131,6 +147,11 @@ public abstract class SegmentBase {
      * @param segmentTimeline A segment timeline corresponding to the segments. If null, then
      *     segments are assumed to be of fixed duration as specified by the {@code duration}
      *     parameter.
+     * @param availabilityTimeOffsetUs The offset to the current realtime at which segments become
+     *     available in microseconds, or {@link C#TIME_UNSET} if not applicable.
+     * @param timeShiftBufferDepthUs The time shift buffer depth in microseconds.
+     * @param periodStartUnixTimeUs The start of the enclosing period in microseconds since the Unix
+     *     epoch.
      */
     public MultiSegmentBase(
         @Nullable RangedUri initialization,
@@ -138,14 +159,20 @@ public abstract class SegmentBase {
         long presentationTimeOffset,
         long startNumber,
         long duration,
-        @Nullable List<SegmentTimelineElement> segmentTimeline) {
+        @Nullable List<SegmentTimelineElement> segmentTimeline,
+        long availabilityTimeOffsetUs,
+        long timeShiftBufferDepthUs,
+        long periodStartUnixTimeUs) {
       super(initialization, timescale, presentationTimeOffset);
       this.startNumber = startNumber;
       this.duration = duration;
       this.segmentTimeline = segmentTimeline;
+      this.availabilityTimeOffsetUs = availabilityTimeOffsetUs;
+      this.timeShiftBufferDepthUs = timeShiftBufferDepthUs;
+      this.periodStartUnixTimeUs = periodStartUnixTimeUs;
     }
 
-    /** @see DashSegmentIndex#getSegmentNum(long, long) */
+    /** See {@link DashSegmentIndex#getSegmentNum(long, long)}. */
     public long getSegmentNum(long timeUs, long periodDurationUs) {
       final long firstSegmentNum = getFirstSegmentNum();
       final long segmentCount = getSegmentCount(periodDurationUs);
@@ -157,9 +184,11 @@ public abstract class SegmentBase {
         long durationUs = (duration * C.MICROS_PER_SECOND) / timescale;
         long segmentNum = startNumber + timeUs / durationUs;
         // Ensure we stay within bounds.
-        return segmentNum < firstSegmentNum ? firstSegmentNum
-            : segmentCount == DashSegmentIndex.INDEX_UNBOUNDED ? segmentNum
-            : Math.min(segmentNum, firstSegmentNum + segmentCount - 1);
+        return segmentNum < firstSegmentNum
+            ? firstSegmentNum
+            : segmentCount == INDEX_UNBOUNDED
+                ? segmentNum
+                : min(segmentNum, firstSegmentNum + segmentCount - 1);
       } else {
         // The index cannot be unbounded. Identify the segment using binary search.
         long lowIndex = firstSegmentNum;
@@ -179,21 +208,21 @@ public abstract class SegmentBase {
       }
     }
 
-    /** @see DashSegmentIndex#getDurationUs(long, long) */
+    /** See {@link DashSegmentIndex#getDurationUs(long, long)}. */
     public final long getSegmentDurationUs(long sequenceNumber, long periodDurationUs) {
       if (segmentTimeline != null) {
         long duration = segmentTimeline.get((int) (sequenceNumber - startNumber)).duration;
         return (duration * C.MICROS_PER_SECOND) / timescale;
       } else {
         int segmentCount = getSegmentCount(periodDurationUs);
-        return segmentCount != DashSegmentIndex.INDEX_UNBOUNDED
-            && sequenceNumber == (getFirstSegmentNum() + segmentCount - 1)
+        return segmentCount != INDEX_UNBOUNDED
+                && sequenceNumber == (getFirstSegmentNum() + segmentCount - 1)
             ? (periodDurationUs - getSegmentTimeUs(sequenceNumber))
             : ((duration * C.MICROS_PER_SECOND) / timescale);
       }
     }
 
-    /** @see DashSegmentIndex#getTimeUs(long) */
+    /** See {@link DashSegmentIndex#getTimeUs(long)}. */
     public final long getSegmentTimeUs(long sequenceNumber) {
       long unscaledSegmentTime;
       if (segmentTimeline != null) {
@@ -210,35 +239,72 @@ public abstract class SegmentBase {
      * Returns a {@link RangedUri} defining the location of a segment for the given index in the
      * given representation.
      *
-     * @see DashSegmentIndex#getSegmentUrl(long)
+     * <p>See {@link DashSegmentIndex#getSegmentUrl(long)}.
      */
     public abstract RangedUri getSegmentUrl(Representation representation, long index);
 
-    /** @see DashSegmentIndex#getFirstSegmentNum() */
+    /** See {@link DashSegmentIndex#getFirstSegmentNum()}. */
     public long getFirstSegmentNum() {
       return startNumber;
     }
 
-    /**
-     * @see DashSegmentIndex#getSegmentCount(long)
-     */
-    public abstract int getSegmentCount(long periodDurationUs);
+    /** See {@link DashSegmentIndex#getFirstAvailableSegmentNum(long, long)}. */
+    public long getFirstAvailableSegmentNum(long periodDurationUs, long nowUnixTimeUs) {
+      long segmentCount = getSegmentCount(periodDurationUs);
+      if (segmentCount != INDEX_UNBOUNDED || timeShiftBufferDepthUs == C.TIME_UNSET) {
+        return getFirstSegmentNum();
+      }
+      // The index is itself unbounded. We need to use the current time to calculate the range of
+      // available segments.
+      long liveEdgeTimeInPeriodUs = nowUnixTimeUs - periodStartUnixTimeUs;
+      long timeShiftBufferStartInPeriodUs = liveEdgeTimeInPeriodUs - timeShiftBufferDepthUs;
+      long timeShiftBufferStartSegmentNum =
+          getSegmentNum(timeShiftBufferStartInPeriodUs, periodDurationUs);
+      return max(getFirstSegmentNum(), timeShiftBufferStartSegmentNum);
+    }
 
-    /**
-     * @see DashSegmentIndex#isExplicit()
-     */
+    /** See {@link DashSegmentIndex#getAvailableSegmentCount(long, long)}. */
+    public int getAvailableSegmentCount(long periodDurationUs, long nowUnixTimeUs) {
+      int segmentCount = getSegmentCount(periodDurationUs);
+      if (segmentCount != INDEX_UNBOUNDED) {
+        return segmentCount;
+      }
+      // The index is itself unbounded. We need to use the current time to calculate the range of
+      // available segments.
+      long liveEdgeTimeInPeriodUs = nowUnixTimeUs - periodStartUnixTimeUs;
+      long availabilityTimeOffsetUs = liveEdgeTimeInPeriodUs + this.availabilityTimeOffsetUs;
+      // getSegmentNum(availabilityTimeOffsetUs) will not be completed yet.
+      long firstIncompleteSegmentNum = getSegmentNum(availabilityTimeOffsetUs, periodDurationUs);
+      long firstAvailableSegmentNum = getFirstAvailableSegmentNum(periodDurationUs, nowUnixTimeUs);
+      return (int) (firstIncompleteSegmentNum - firstAvailableSegmentNum);
+    }
+
+    /** See {@link DashSegmentIndex#getNextSegmentAvailableTimeUs(long, long)}. */
+    public long getNextSegmentAvailableTimeUs(long periodDurationUs, long nowUnixTimeUs) {
+      if (segmentTimeline != null) {
+        return C.TIME_UNSET;
+      }
+      long firstIncompleteSegmentNum =
+          getFirstAvailableSegmentNum(periodDurationUs, nowUnixTimeUs)
+              + getAvailableSegmentCount(periodDurationUs, nowUnixTimeUs);
+      return getSegmentTimeUs(firstIncompleteSegmentNum)
+          + getSegmentDurationUs(firstIncompleteSegmentNum, periodDurationUs)
+          - availabilityTimeOffsetUs;
+    }
+
+    /** See {@link DashSegmentIndex#isExplicit()} */
     public boolean isExplicit() {
       return segmentTimeline != null;
     }
 
+    /** See {@link DashSegmentIndex#getSegmentCount(long)}. */
+    public abstract int getSegmentCount(long periodDurationUs);
   }
 
-  /**
-   * A {@link MultiSegmentBase} that uses a SegmentList to define its segments.
-   */
-  public static class SegmentList extends MultiSegmentBase {
+  /** A {@link MultiSegmentBase} that uses a SegmentList to define its segments. */
+  public static final class SegmentList extends MultiSegmentBase {
 
-    /* package */ @Nullable final List<RangedUri> mediaSegments;
+    @Nullable /* package */ final List<RangedUri> mediaSegments;
 
     /**
      * @param initialization A {@link RangedUri} corresponding to initialization data, if such data
@@ -253,7 +319,12 @@ public abstract class SegmentBase {
      * @param segmentTimeline A segment timeline corresponding to the segments. If null, then
      *     segments are assumed to be of fixed duration as specified by the {@code duration}
      *     parameter.
+     * @param availabilityTimeOffsetUs The offset to the current realtime at which segments become
+     *     available in microseconds, or {@link C#TIME_UNSET} if not applicable.
      * @param mediaSegments A list of {@link RangedUri}s indicating the locations of the segments.
+     * @param timeShiftBufferDepthUs The time shift buffer depth in microseconds.
+     * @param periodStartUnixTimeUs The start of the enclosing period in microseconds since the Unix
+     *     epoch.
      */
     public SegmentList(
         RangedUri initialization,
@@ -262,9 +333,20 @@ public abstract class SegmentBase {
         long startNumber,
         long duration,
         @Nullable List<SegmentTimelineElement> segmentTimeline,
-        @Nullable List<RangedUri> mediaSegments) {
-      super(initialization, timescale, presentationTimeOffset, startNumber, duration,
-          segmentTimeline);
+        long availabilityTimeOffsetUs,
+        @Nullable List<RangedUri> mediaSegments,
+        long timeShiftBufferDepthUs,
+        long periodStartUnixTimeUs) {
+      super(
+          initialization,
+          timescale,
+          presentationTimeOffset,
+          startNumber,
+          duration,
+          segmentTimeline,
+          availabilityTimeOffsetUs,
+          timeShiftBufferDepthUs,
+          periodStartUnixTimeUs);
       this.mediaSegments = mediaSegments;
     }
 
@@ -285,13 +367,11 @@ public abstract class SegmentBase {
 
   }
 
-  /**
-   * A {@link MultiSegmentBase} that uses a SegmentTemplate to define its segments.
-   */
-  public static class SegmentTemplate extends MultiSegmentBase {
+  /** A {@link MultiSegmentBase} that uses a SegmentTemplate to define its segments. */
+  public static final class SegmentTemplate extends MultiSegmentBase {
 
-    /* package */ @Nullable final UrlTemplate initializationTemplate;
-    /* package */ @Nullable final UrlTemplate mediaTemplate;
+    @Nullable /* package */ final UrlTemplate initializationTemplate;
+    @Nullable /* package */ final UrlTemplate mediaTemplate;
     /* package */ final long endNumber;
 
     /**
@@ -311,10 +391,15 @@ public abstract class SegmentBase {
      * @param segmentTimeline A segment timeline corresponding to the segments. If null, then
      *     segments are assumed to be of fixed duration as specified by the {@code duration}
      *     parameter.
+     * @param availabilityTimeOffsetUs The offset to the current realtime at which segments become
+     *     available in microseconds, or {@link C#TIME_UNSET} if not applicable.
      * @param initializationTemplate A template defining the location of initialization data, if
      *     such data exists. If non-null then the {@code initialization} parameter is ignored. If
      *     null then {@code initialization} will be used.
      * @param mediaTemplate A template defining the location of each media segment.
+     * @param timeShiftBufferDepthUs The time shift buffer depth in microseconds.
+     * @param periodStartUnixTimeUs The start of the enclosing period in microseconds since the Unix
+     *     epoch.
      */
     public SegmentTemplate(
         RangedUri initialization,
@@ -324,15 +409,21 @@ public abstract class SegmentBase {
         long endNumber,
         long duration,
         @Nullable List<SegmentTimelineElement> segmentTimeline,
+        long availabilityTimeOffsetUs,
         @Nullable UrlTemplate initializationTemplate,
-        @Nullable UrlTemplate mediaTemplate) {
+        @Nullable UrlTemplate mediaTemplate,
+        long timeShiftBufferDepthUs,
+        long periodStartUnixTimeUs) {
       super(
           initialization,
           timescale,
           presentationTimeOffset,
           startNumber,
           duration,
-          segmentTimeline);
+          segmentTimeline,
+          availabilityTimeOffsetUs,
+          timeShiftBufferDepthUs,
+          periodStartUnixTimeUs);
       this.initializationTemplate = initializationTemplate;
       this.mediaTemplate = mediaTemplate;
       this.endNumber = endNumber;
@@ -373,15 +464,13 @@ public abstract class SegmentBase {
         long durationUs = (duration * C.MICROS_PER_SECOND) / timescale;
         return (int) Util.ceilDivide(periodDurationUs, durationUs);
       } else {
-        return DashSegmentIndex.INDEX_UNBOUNDED;
+        return INDEX_UNBOUNDED;
       }
     }
   }
 
-  /**
-   * Represents a timeline segment from the MPD's SegmentTimeline list.
-   */
-  public static class SegmentTimelineElement {
+  /** Represents a timeline segment from the MPD's SegmentTimeline list. */
+  public static final class SegmentTimelineElement {
 
     /* package */ final long startTime;
     /* package */ final long duration;

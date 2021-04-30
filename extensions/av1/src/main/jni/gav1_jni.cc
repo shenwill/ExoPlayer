@@ -32,6 +32,7 @@
 #include <mutex>  // NOLINT
 #include <new>
 
+#include "cpu_info.h"  // NOLINT
 #include "gav1/decoder.h"
 
 #define LOG_TAG "gav1_jni"
@@ -72,7 +73,7 @@ const int kImageFormatYV12 = 0x32315659;
 // Output modes.
 const int kOutputModeYuv = 0;
 const int kOutputModeSurfaceYuv = 1;
-// LINT.ThenChange(../../../../../library/core/src/main/java/com/google/android/exoplayer2/C.java)
+// LINT.ThenChange(../../../../../library/common/src/main/java/com/google/android/exoplayer2/C.java)
 
 // LINT.IfChange
 const int kColorSpaceUnknown = 0;
@@ -772,6 +773,10 @@ DECODER_FUNC(jint, gav1CheckError, jlong jContext) {
     return kStatusError;
   }
   return kStatusOk;
+}
+
+DECODER_FUNC(jint, gav1GetThreads) {
+  return gav1_jni::GetNumberOfPerformanceCoresOnline();
 }
 
 // TODO(b/139902005): Add functions for getting libgav1 version and build

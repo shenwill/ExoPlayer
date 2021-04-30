@@ -15,6 +15,8 @@
  */
 package com.google.android.exoplayer2.trackselection;
 
+import static java.lang.Math.max;
+
 import android.os.SystemClock;
 import androidx.annotation.Nullable;
 import com.google.android.exoplayer2.C;
@@ -24,35 +26,22 @@ import com.google.android.exoplayer2.source.chunk.MediaChunk;
 import com.google.android.exoplayer2.util.Assertions;
 import com.google.android.exoplayer2.util.Util;
 import java.util.Arrays;
-import java.util.Comparator;
 import java.util.List;
 
-/**
- * An abstract base class suitable for most {@link TrackSelection} implementations.
- */
-public abstract class BaseTrackSelection implements TrackSelection {
+/** An abstract base class suitable for most {@link ExoTrackSelection} implementations. */
+public abstract class BaseTrackSelection implements ExoTrackSelection {
 
-  /**
-   * The selected {@link TrackGroup}.
-   */
+  /** The selected {@link TrackGroup}. */
   protected final TrackGroup group;
-  /**
-   * The number of selected tracks within the {@link TrackGroup}. Always greater than zero.
-   */
+  /** The number of selected tracks within the {@link TrackGroup}. Always greater than zero. */
   protected final int length;
-  /**
-   * The indices of the selected tracks in {@link #group}, in order of decreasing bandwidth.
-   */
+  /** The indices of the selected tracks in {@link #group}, in order of decreasing bandwidth. */
   protected final int[] tracks;
 
-  /**
-   * The {@link Format}s of the selected tracks, in order of decreasing bandwidth.
-   */
+  /** The {@link Format}s of the selected tracks, in order of decreasing bandwidth. */
   private final Format[] formats;
-  /**
-   * Selected track blacklist timestamps, in order of decreasing bandwidth.
-   */
-  private final long[] blacklistUntilTimes;
+  /** Selected track exclusion timestamps, in order of decreasing bandwidth. */
+  private final long[] excludeUntilTimes;
 
   // Lazily initialized hashcode.
   private int hashCode;
@@ -71,13 +60,14 @@ public abstract class BaseTrackSelection implements TrackSelection {
     for (int i = 0; i < tracks.length; i++) {
       formats[i] = group.getFormat(tracks[i]);
     }
-    Arrays.sort(formats, new DecreasingBandwidthComparator());
+    // Sort in order of decreasing bandwidth.
+    Arrays.sort(formats, (a, b) -> b.bitrate - a.bitrate);
     // Set the format indices in the same order.
     this.tracks = new int[length];
     for (int i = 0; i < length; i++) {
       this.tracks[i] = group.indexOf(formats[i]);
     }
-    blacklistUntilTimes = new long[length];
+    excludeUntilTimes = new long[length];
   }
 
   @Override
@@ -152,30 +142,30 @@ public abstract class BaseTrackSelection implements TrackSelection {
   }
 
   @Override
-  public final boolean blacklist(int index, long blacklistDurationMs) {
+  public final boolean blacklist(int index, long exclusionDurationMs) {
     long nowMs = SystemClock.elapsedRealtime();
-    boolean canBlacklist = isBlacklisted(index, nowMs);
-    for (int i = 0; i < length && !canBlacklist; i++) {
-      canBlacklist = i != index && !isBlacklisted(i, nowMs);
+    boolean canExclude = isBlacklisted(index, nowMs);
+    for (int i = 0; i < length && !canExclude; i++) {
+      canExclude = i != index && !isBlacklisted(i, nowMs);
     }
-    if (!canBlacklist) {
+    if (!canExclude) {
       return false;
     }
-    blacklistUntilTimes[index] =
-        Math.max(
-            blacklistUntilTimes[index],
-            Util.addWithOverflowDefault(nowMs, blacklistDurationMs, Long.MAX_VALUE));
+    excludeUntilTimes[index] =
+        max(
+            excludeUntilTimes[index],
+            Util.addWithOverflowDefault(nowMs, exclusionDurationMs, Long.MAX_VALUE));
     return true;
   }
 
   /**
-   * Returns whether the track at the specified index in the selection is blacklisted.
+   * Returns whether the track at the specified index in the selection is excluded.
    *
    * @param index The index of the track in the selection.
    * @param nowMs The current time in the timebase of {@link SystemClock#elapsedRealtime()}.
    */
   protected final boolean isBlacklisted(int index, long nowMs) {
-    return blacklistUntilTimes[index] > nowMs;
+    return excludeUntilTimes[index] > nowMs;
   }
 
   // Object overrides.
@@ -201,17 +191,4 @@ public abstract class BaseTrackSelection implements TrackSelection {
     BaseTrackSelection other = (BaseTrackSelection) obj;
     return group == other.group && Arrays.equals(tracks, other.tracks);
   }
-
-  /**
-   * Sorts {@link Format} objects in order of decreasing bandwidth.
-   */
-  private static final class DecreasingBandwidthComparator implements Comparator<Format> {
-
-    @Override
-    public int compare(Format a, Format b) {
-      return b.bitrate - a.bitrate;
-    }
-
-  }
-
 }

@@ -27,6 +27,7 @@ import com.google.android.exoplayer2.C;
 import com.google.android.exoplayer2.Format;
 import com.google.android.exoplayer2.FormatHolder;
 import com.google.android.exoplayer2.RendererCapabilities;
+import com.google.android.exoplayer2.source.SampleStream;
 import com.google.android.exoplayer2.util.Assertions;
 import com.google.android.exoplayer2.util.Util;
 import java.util.ArrayList;
@@ -39,6 +40,7 @@ import org.checkerframework.checker.nullness.compatqual.NullableType;
  */
 public final class MetadataRenderer extends BaseRenderer implements Callback {
 
+  private static final String TAG = "MetadataRenderer";
   private static final int MSG_INVOKE_RENDERER = 0;
   // TODO: Holding multiple pending metadata objects is temporary mitigation against
   // https://github.com/google/ExoPlayer/issues/1874. It should be removed once this issue has been
@@ -56,6 +58,7 @@ public final class MetadataRenderer extends BaseRenderer implements Callback {
   private int pendingMetadataCount;
   @Nullable private MetadataDecoder decoder;
   private boolean inputStreamEnded;
+  private boolean outputStreamEnded;
   private long subsampleOffsetUs;
 
   /**
@@ -92,18 +95,23 @@ public final class MetadataRenderer extends BaseRenderer implements Callback {
   }
 
   @Override
+  public String getName() {
+    return TAG;
+  }
+
+  @Override
   @Capabilities
   public int supportsFormat(Format format) {
     if (decoderFactory.supportsFormat(format)) {
       return RendererCapabilities.create(
-          supportsFormatDrm(null, format.drmInitData) ? FORMAT_HANDLED : FORMAT_UNSUPPORTED_DRM);
+          format.exoMediaCryptoType == null ? C.FORMAT_HANDLED : C.FORMAT_UNSUPPORTED_DRM);
     } else {
-      return RendererCapabilities.create(FORMAT_UNSUPPORTED_TYPE);
+      return RendererCapabilities.create(C.FORMAT_UNSUPPORTED_TYPE);
     }
   }
 
   @Override
-  protected void onStreamChanged(Format[] formats, long offsetUs) {
+  protected void onStreamChanged(Format[] formats, long startPositionUs, long offsetUs) {
     decoder = decoderFactory.createDecoder(formats[0]);
   }
 
@@ -111,6 +119,7 @@ public final class MetadataRenderer extends BaseRenderer implements Callback {
   protected void onPositionReset(long positionUs, boolean joining) {
     flushPendingMetadata();
     inputStreamEnded = false;
+    outputStreamEnded = false;
   }
 
   @Override
@@ -118,14 +127,10 @@ public final class MetadataRenderer extends BaseRenderer implements Callback {
     if (!inputStreamEnded && pendingMetadataCount < MAX_PENDING_METADATA_COUNT) {
       buffer.clear();
       FormatHolder formatHolder = getFormatHolder();
-      int result = readSource(formatHolder, buffer, false);
+      @SampleStream.ReadDataResult int result = readSource(formatHolder, buffer, false);
       if (result == C.RESULT_BUFFER_READ) {
         if (buffer.isEndOfStream()) {
           inputStreamEnded = true;
-        } else if (buffer.isDecodeOnly()) {
-          // Do nothing. Note this assumes that all metadata buffers can be decoded independently.
-          // If we ever need to support a metadata format where this is not the case, we'll need to
-          // pass the buffer to the decoder and discard the output.
         } else {
           buffer.subsampleOffsetUs = subsampleOffsetUs;
           buffer.flip();
@@ -154,6 +159,9 @@ public final class MetadataRenderer extends BaseRenderer implements Callback {
       pendingMetadata[pendingMetadataIndex] = null;
       pendingMetadataIndex = (pendingMetadataIndex + 1) % MAX_PENDING_METADATA_COUNT;
       pendingMetadataCount--;
+    }
+    if (inputStreamEnded && pendingMetadataCount == 0) {
+      outputStreamEnded = true;
     }
   }
 
@@ -195,7 +203,7 @@ public final class MetadataRenderer extends BaseRenderer implements Callback {
 
   @Override
   public boolean isEnded() {
-    return inputStreamEnded;
+    return outputStreamEnded;
   }
 
   @Override
