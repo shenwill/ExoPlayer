@@ -39,7 +39,7 @@ import com.google.android.exoplayer2.source.hls.playlist.HlsMasterPlaylist;
 import com.google.android.exoplayer2.source.hls.playlist.HlsMasterPlaylist.Rendition;
 import com.google.android.exoplayer2.source.hls.playlist.HlsMasterPlaylist.Variant;
 import com.google.android.exoplayer2.source.hls.playlist.HlsPlaylistTracker;
-import com.google.android.exoplayer2.trackselection.TrackSelection;
+import com.google.android.exoplayer2.trackselection.ExoTrackSelection;
 import com.google.android.exoplayer2.upstream.Allocator;
 import com.google.android.exoplayer2.upstream.DataSource;
 import com.google.android.exoplayer2.upstream.LoadErrorHandlingPolicy;
@@ -59,11 +59,11 @@ import java.util.Map;
 import org.checkerframework.checker.nullness.compatqual.NullableType;
 import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
 
-/**
- * A {@link MediaPeriod} that loads an HLS stream.
- */
-public final class HlsMediaPeriod implements MediaPeriod, HlsSampleStreamWrapper.Callback,
-    HlsPlaylistTracker.PlaylistEventListener {
+/** A {@link MediaPeriod} that loads an HLS stream. */
+public final class HlsMediaPeriod
+    implements MediaPeriod,
+        HlsSampleStreamWrapper.Callback,
+        HlsPlaylistTracker.PlaylistEventListener {
 
   private final HlsExtractorFactory extractorFactory;
   private final HlsPlaylistTracker playlistTracker;
@@ -88,6 +88,7 @@ public final class HlsMediaPeriod implements MediaPeriod, HlsSampleStreamWrapper
   private HlsSampleStreamWrapper[] enabledSampleStreamWrappers;
   // Maps sample stream wrappers to variant/rendition index by matching array positions.
   private int[][] manifestUrlIndicesPerWrapper;
+  private int audioVideoSampleStreamWrapperCount;
   private SequenceableLoader compositeSequenceableLoader;
 
   /**
@@ -177,7 +178,7 @@ public final class HlsMediaPeriod implements MediaPeriod, HlsSampleStreamWrapper
   // null URLs, this method must be updated to calculate stream keys that are compatible with those
   // that may already be persisted for offline.
   @Override
-  public List<StreamKey> getStreamKeys(List<TrackSelection> trackSelections) {
+  public List<StreamKey> getStreamKeys(List<ExoTrackSelection> trackSelections) {
     // See HlsMasterPlaylist.copy for interpretation of StreamKeys.
     HlsMasterPlaylist masterPlaylist = Assertions.checkNotNull(playlistTracker.getMasterPlaylist());
     boolean hasVariants = !masterPlaylist.variants.isEmpty();
@@ -202,7 +203,7 @@ public final class HlsMediaPeriod implements MediaPeriod, HlsSampleStreamWrapper
     List<StreamKey> streamKeys = new ArrayList<>();
     boolean needsPrimaryTrackGroupSelection = false;
     boolean hasPrimaryTrackGroupSelection = false;
-    for (TrackSelection trackSelection : trackSelections) {
+    for (ExoTrackSelection trackSelection : trackSelections) {
       TrackGroup trackSelectionGroup = trackSelection.getTrackGroup();
       int mainWrapperTrackGroupIndex = mainWrapperTrackGroups.indexOf(trackSelectionGroup);
       if (mainWrapperTrackGroupIndex != C.INDEX_UNSET) {
@@ -258,7 +259,7 @@ public final class HlsMediaPeriod implements MediaPeriod, HlsSampleStreamWrapper
 
   @Override
   public long selectTracks(
-      @NullableType TrackSelection[] selections,
+      @NullableType ExoTrackSelection[] selections,
       boolean[] mayRetainStreamFlags,
       @NullableType SampleStream[] streams,
       boolean[] streamResetFlags,
@@ -286,7 +287,7 @@ public final class HlsMediaPeriod implements MediaPeriod, HlsSampleStreamWrapper
     // Select tracks for each child, copying the resulting streams back into a new streams array.
     SampleStream[] newStreams = new SampleStream[selections.length];
     @NullableType SampleStream[] childStreams = new SampleStream[selections.length];
-    @NullableType TrackSelection[] childSelections = new TrackSelection[selections.length];
+    @NullableType ExoTrackSelection[] childSelections = new ExoTrackSelection[selections.length];
     int newEnabledSampleStreamWrapperCount = 0;
     HlsSampleStreamWrapper[] newEnabledSampleStreamWrappers =
         new HlsSampleStreamWrapper[sampleStreamWrappers.length];
@@ -315,8 +316,9 @@ public final class HlsMediaPeriod implements MediaPeriod, HlsSampleStreamWrapper
       if (wrapperEnabled) {
         newEnabledSampleStreamWrappers[newEnabledSampleStreamWrapperCount] = sampleStreamWrapper;
         if (newEnabledSampleStreamWrapperCount++ == 0) {
-          // The first enabled wrapper is responsible for initializing timestamp adjusters. This
-          // way, if enabled, variants are responsible. Else audio renditions. Else text renditions.
+          // The first enabled wrapper is always allowed to initialize timestamp adjusters. Note
+          // that the first wrapper will correspond to a variant, or else an audio rendition, or
+          // else a text rendition, in that order.
           sampleStreamWrapper.setIsTimestampMaster(true);
           if (wasReset || enabledSampleStreamWrappers.length == 0
               || sampleStreamWrapper != enabledSampleStreamWrappers[0]) {
@@ -326,7 +328,11 @@ public final class HlsMediaPeriod implements MediaPeriod, HlsSampleStreamWrapper
             forceReset = true;
           }
         } else {
-          sampleStreamWrapper.setIsTimestampMaster(false);
+          // Additional wrappers are also allowed to initialize timestamp adjusters if they contain
+          // audio or video, since they are expected to contain dense samples. Text wrappers are not
+          // permitted except in the case above in which no variant or audio rendition wrappers are
+          // enabled.
+          sampleStreamWrapper.setIsTimestampMaster(i < audioVideoSampleStreamWrapperCount);
         }
       }
     }
@@ -495,6 +501,8 @@ public final class HlsMediaPeriod implements MediaPeriod, HlsSampleStreamWrapper
         sampleStreamWrappers,
         manifestUrlIndicesPerWrapper,
         overridingDrmInitData);
+
+    audioVideoSampleStreamWrapperCount = sampleStreamWrappers.size();
 
     // Subtitle stream wrappers. We can always use master playlist information to prepare these.
     for (int i = 0; i < subtitleRenditions.size(); i++) {

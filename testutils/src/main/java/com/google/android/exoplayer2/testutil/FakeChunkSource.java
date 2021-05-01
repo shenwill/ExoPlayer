@@ -27,7 +27,7 @@ import com.google.android.exoplayer2.source.chunk.MediaChunk;
 import com.google.android.exoplayer2.source.chunk.MediaChunkIterator;
 import com.google.android.exoplayer2.source.chunk.SingleSampleMediaChunk;
 import com.google.android.exoplayer2.testutil.FakeDataSet.FakeData.Segment;
-import com.google.android.exoplayer2.trackselection.TrackSelection;
+import com.google.android.exoplayer2.trackselection.ExoTrackSelection;
 import com.google.android.exoplayer2.upstream.DataSource;
 import com.google.android.exoplayer2.upstream.DataSpec;
 import com.google.android.exoplayer2.upstream.TransferListener;
@@ -35,18 +35,14 @@ import com.google.android.exoplayer2.util.Assertions;
 import com.google.android.exoplayer2.util.MimeTypes;
 import java.util.List;
 
-/**
- * Fake {@link ChunkSource} with adaptive media chunks of a given duration.
- */
-public final class FakeChunkSource implements ChunkSource {
+/** Fake {@link ChunkSource} with adaptive media chunks of a given duration. */
+public class FakeChunkSource implements ChunkSource {
 
-  /**
-   * Factory for a {@link FakeChunkSource}.
-   */
-  public static final class Factory {
+  /** Factory for a {@link FakeChunkSource}. */
+  public static class Factory {
 
-    private final FakeAdaptiveDataSet.Factory dataSetFactory;
-    private final FakeDataSource.Factory dataSourceFactory;
+    protected final FakeAdaptiveDataSet.Factory dataSetFactory;
+    protected final FakeDataSource.Factory dataSourceFactory;
 
     public Factory(FakeAdaptiveDataSet.Factory dataSetFactory,
         FakeDataSource.Factory dataSourceFactory) {
@@ -55,27 +51,26 @@ public final class FakeChunkSource implements ChunkSource {
     }
 
     public FakeChunkSource createChunkSource(
-        TrackSelection trackSelection,
+        ExoTrackSelection trackSelection,
         long durationUs,
         @Nullable TransferListener transferListener) {
       FakeAdaptiveDataSet dataSet =
           dataSetFactory.createDataSet(trackSelection.getTrackGroup(), durationUs);
       dataSourceFactory.setFakeDataSet(dataSet);
-      DataSource dataSource = dataSourceFactory.createDataSource();
+      FakeDataSource dataSource = dataSourceFactory.createDataSource();
       if (transferListener != null) {
         dataSource.addTransferListener(transferListener);
       }
       return new FakeChunkSource(trackSelection, dataSource, dataSet);
     }
-
   }
 
-  private final TrackSelection trackSelection;
+  private final ExoTrackSelection trackSelection;
   private final DataSource dataSource;
   private final FakeAdaptiveDataSet dataSet;
 
-  public FakeChunkSource(TrackSelection trackSelection, DataSource dataSource,
-      FakeAdaptiveDataSet dataSet) {
+  public FakeChunkSource(
+      ExoTrackSelection trackSelection, DataSource dataSource, FakeAdaptiveDataSet dataSet) {
     this.trackSelection = trackSelection;
     this.dataSource = dataSource;
     this.dataSet = dataSet;

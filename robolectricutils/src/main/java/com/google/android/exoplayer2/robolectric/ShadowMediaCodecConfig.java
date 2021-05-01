@@ -17,6 +17,7 @@ package com.google.android.exoplayer2.robolectric;
 
 import android.media.MediaCodecInfo;
 import android.media.MediaFormat;
+import com.google.android.exoplayer2.mediacodec.MediaCodecUtil;
 import com.google.android.exoplayer2.util.MimeTypes;
 import com.google.common.collect.ImmutableList;
 import com.google.common.primitives.Ints;
@@ -77,10 +78,16 @@ public final class ShadowMediaCodecConfig extends ExternalResource {
     configureCodec("exotest.audio.mpegl2", MimeTypes.AUDIO_MPEG_L2);
     configureCodec("exotest.audio.opus", MimeTypes.AUDIO_OPUS);
     configureCodec("exotest.audio.vorbis", MimeTypes.AUDIO_VORBIS);
+
+    // Raw audio should use a bypass mode and never need this codec. However, to easily assert
+    // failures of the bypass mode we want to detect when the raw audio is decoded by this class and
+    // thus we need a codec to output samples.
+    configureCodec("exotest.audio.raw", MimeTypes.AUDIO_RAW);
   }
 
   @Override
   protected void after() {
+    MediaCodecUtil.clearDecoderInfoCache();
     ShadowMediaCodecList.reset();
     ShadowMediaCodec.clearCodecs();
   }

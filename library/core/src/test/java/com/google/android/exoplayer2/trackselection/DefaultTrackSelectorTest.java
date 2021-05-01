@@ -88,6 +88,7 @@ public final class DefaultTrackSelectorTest {
           .setSampleMimeType(MimeTypes.VIDEO_H264)
           .setWidth(1024)
           .setHeight(768)
+          .setAverageBitrate(450000)
           .build();
   private static final Format AUDIO_FORMAT =
       new Format.Builder()
@@ -323,7 +324,7 @@ public final class DefaultTrackSelectorTest {
             trackGroups,
             periodId,
             TIMELINE);
-    assertFixedSelection(result.selections.get(0), trackGroups, formatWithSelectionFlag);
+    assertFixedSelection(result.selections[0], trackGroups, formatWithSelectionFlag);
   }
 
   /** Tests that adaptive audio track selections respect the maximum audio bitrate. */
@@ -341,25 +342,25 @@ public final class DefaultTrackSelectorTest {
 
     TrackSelectorResult result =
         trackSelector.selectTracks(rendererCapabilities, trackGroups, periodId, TIMELINE);
-    assertAdaptiveSelection(result.selections.get(0), trackGroups.get(0), 2, 0, 1);
+    assertAdaptiveSelection(result.selections[0], trackGroups.get(0), 2, 0, 1);
 
     trackSelector.setParameters(
         trackSelector.buildUponParameters().setMaxAudioBitrate(256 * 1024 - 1));
     result = trackSelector.selectTracks(rendererCapabilities, trackGroups, periodId, TIMELINE);
-    assertAdaptiveSelection(result.selections.get(0), trackGroups.get(0), 0, 1);
+    assertAdaptiveSelection(result.selections[0], trackGroups.get(0), 0, 1);
 
     trackSelector.setParameters(trackSelector.buildUponParameters().setMaxAudioBitrate(192 * 1024));
     result = trackSelector.selectTracks(rendererCapabilities, trackGroups, periodId, TIMELINE);
-    assertAdaptiveSelection(result.selections.get(0), trackGroups.get(0), 0, 1);
+    assertAdaptiveSelection(result.selections[0], trackGroups.get(0), 0, 1);
 
     trackSelector.setParameters(
         trackSelector.buildUponParameters().setMaxAudioBitrate(192 * 1024 - 1));
     result = trackSelector.selectTracks(rendererCapabilities, trackGroups, periodId, TIMELINE);
-    assertFixedSelection(result.selections.get(0), trackGroups.get(0), 1);
+    assertFixedSelection(result.selections[0], trackGroups.get(0), 1);
 
     trackSelector.setParameters(trackSelector.buildUponParameters().setMaxAudioBitrate(10));
     result = trackSelector.selectTracks(rendererCapabilities, trackGroups, periodId, TIMELINE);
-    assertFixedSelection(result.selections.get(0), trackGroups.get(0), 1);
+    assertFixedSelection(result.selections[0], trackGroups.get(0), 1);
   }
 
   /**
@@ -380,7 +381,76 @@ public final class DefaultTrackSelectorTest {
             wrapFormats(frAudioFormat, enAudioFormat),
             periodId,
             TIMELINE);
-    assertFixedSelection(result.selections.get(0), trackGroups, enAudioFormat);
+    assertFixedSelection(result.selections[0], trackGroups, enAudioFormat);
+  }
+
+  /**
+   * Tests that track selector will select audio track with the highest number of matching role
+   * flags given by {@link Parameters}.
+   */
+  @Test
+  public void selectTracks_withPreferredAudioRoleFlags_selectPreferredTrack() throws Exception {
+    Format.Builder formatBuilder = AUDIO_FORMAT.buildUpon();
+    Format noRoleFlags = formatBuilder.build();
+    Format lessRoleFlags = formatBuilder.setRoleFlags(C.ROLE_FLAG_CAPTION).build();
+    Format moreRoleFlags =
+        formatBuilder
+            .setRoleFlags(C.ROLE_FLAG_CAPTION | C.ROLE_FLAG_COMMENTARY | C.ROLE_FLAG_DUB)
+            .build();
+    TrackGroupArray trackGroups = wrapFormats(noRoleFlags, moreRoleFlags, lessRoleFlags);
+
+    trackSelector.setParameters(
+        defaultParameters
+            .buildUpon()
+            .setPreferredAudioRoleFlags(C.ROLE_FLAG_CAPTION | C.ROLE_FLAG_COMMENTARY));
+    TrackSelectorResult result =
+        trackSelector.selectTracks(
+            new RendererCapabilities[] {ALL_AUDIO_FORMAT_SUPPORTED_RENDERER_CAPABILITIES},
+            trackGroups,
+            periodId,
+            TIMELINE);
+    assertFixedSelection(result.selections[0], trackGroups, moreRoleFlags);
+  }
+
+  /**
+   * Tests that track selector with select default audio track if no role flag preference is
+   * specified by {@link Parameters}.
+   */
+  @Test
+  public void selectTracks_withoutPreferredAudioRoleFlags_selectsDefaultTrack() throws Exception {
+    Format firstFormat = AUDIO_FORMAT;
+    Format defaultFormat =
+        AUDIO_FORMAT.buildUpon().setSelectionFlags(C.SELECTION_FLAG_DEFAULT).build();
+    Format roleFlagFormat = AUDIO_FORMAT.buildUpon().setRoleFlags(C.ROLE_FLAG_CAPTION).build();
+    TrackGroupArray trackGroups = wrapFormats(firstFormat, defaultFormat, roleFlagFormat);
+
+    TrackSelectorResult result =
+        trackSelector.selectTracks(
+            new RendererCapabilities[] {ALL_AUDIO_FORMAT_SUPPORTED_RENDERER_CAPABILITIES},
+            trackGroups,
+            periodId,
+            TIMELINE);
+    assertFixedSelection(result.selections[0], trackGroups, defaultFormat);
+  }
+
+  /**
+   * Tests that track selector with select the first audio track if no role flag preference is
+   * specified by {@link Parameters} and no default track exists.
+   */
+  @Test
+  public void selectTracks_withoutPreferredAudioRoleFlagsOrDefaultTrack_selectsFirstTrack()
+      throws Exception {
+    Format firstFormat = AUDIO_FORMAT;
+    Format roleFlagFormat = AUDIO_FORMAT.buildUpon().setRoleFlags(C.ROLE_FLAG_CAPTION).build();
+    TrackGroupArray trackGroups = wrapFormats(firstFormat, roleFlagFormat);
+
+    TrackSelectorResult result =
+        trackSelector.selectTracks(
+            new RendererCapabilities[] {ALL_AUDIO_FORMAT_SUPPORTED_RENDERER_CAPABILITIES},
+            trackGroups,
+            periodId,
+            TIMELINE);
+    assertFixedSelection(result.selections[0], trackGroups, firstFormat);
   }
 
   /**
@@ -402,7 +472,7 @@ public final class DefaultTrackSelectorTest {
             trackGroups,
             periodId,
             TIMELINE);
-    assertFixedSelection(result.selections.get(0), trackGroups, enNonDefaultFormat);
+    assertFixedSelection(result.selections[0], trackGroups, enNonDefaultFormat);
   }
 
   /**
@@ -428,7 +498,7 @@ public final class DefaultTrackSelectorTest {
             trackGroups,
             periodId,
             TIMELINE);
-    assertFixedSelection(result.selections.get(0), trackGroups, supportedFormat);
+    assertFixedSelection(result.selections[0], trackGroups, supportedFormat);
   }
 
   /**
@@ -446,7 +516,7 @@ public final class DefaultTrackSelectorTest {
             trackGroups,
             periodId,
             TIMELINE);
-    assertFixedSelection(result.selections.get(0), trackGroups, AUDIO_FORMAT);
+    assertFixedSelection(result.selections[0], trackGroups, AUDIO_FORMAT);
   }
 
   /**
@@ -467,7 +537,7 @@ public final class DefaultTrackSelectorTest {
             trackGroups,
             periodId,
             TIMELINE);
-    assertNoSelection(result.selections.get(0));
+    assertNoSelection(result.selections[0]);
   }
 
   /**
@@ -494,7 +564,7 @@ public final class DefaultTrackSelectorTest {
             trackGroups,
             periodId,
             TIMELINE);
-    assertFixedSelection(result.selections.get(0), trackGroups, supportedFormat);
+    assertFixedSelection(result.selections[0], trackGroups, supportedFormat);
   }
 
   /**
@@ -522,7 +592,7 @@ public final class DefaultTrackSelectorTest {
             trackGroups,
             periodId,
             TIMELINE);
-    assertFixedSelection(result.selections.get(0), trackGroups, supportedFrFormat);
+    assertFixedSelection(result.selections[0], trackGroups, supportedFrFormat);
   }
 
   /**
@@ -557,7 +627,7 @@ public final class DefaultTrackSelectorTest {
             trackGroups,
             periodId,
             TIMELINE);
-    assertFixedSelection(result.selections.get(0), trackGroups, supportedFrFormat);
+    assertFixedSelection(result.selections[0], trackGroups, supportedFrFormat);
   }
 
   /**
@@ -577,7 +647,7 @@ public final class DefaultTrackSelectorTest {
             trackGroups,
             periodId,
             TIMELINE);
-    assertFixedSelection(result.selections.get(0), trackGroups, higherChannelFormat);
+    assertFixedSelection(result.selections[0], trackGroups, higherChannelFormat);
   }
 
   /**
@@ -597,7 +667,7 @@ public final class DefaultTrackSelectorTest {
             trackGroups,
             periodId,
             TIMELINE);
-    assertFixedSelection(result.selections.get(0), trackGroups, higherSampleRateFormat);
+    assertFixedSelection(result.selections[0], trackGroups, higherSampleRateFormat);
   }
 
   /**
@@ -618,7 +688,7 @@ public final class DefaultTrackSelectorTest {
             trackGroups,
             periodId,
             TIMELINE);
-    assertFixedSelection(result.selections.get(0), trackGroups, higherBitrateFormat);
+    assertFixedSelection(result.selections[0], trackGroups, higherBitrateFormat);
   }
 
   /**
@@ -640,7 +710,7 @@ public final class DefaultTrackSelectorTest {
             trackGroups,
             periodId,
             TIMELINE);
-    assertFixedSelection(result.selections.get(0), trackGroups, firstLanguageFormat);
+    assertFixedSelection(result.selections[0], trackGroups, firstLanguageFormat);
   }
 
   /**
@@ -664,7 +734,7 @@ public final class DefaultTrackSelectorTest {
             trackGroups,
             periodId,
             TIMELINE);
-    assertFixedSelection(result.selections.get(0), trackGroups, higherChannelLowerSampleRateFormat);
+    assertFixedSelection(result.selections[0], trackGroups, higherChannelLowerSampleRateFormat);
   }
 
   /**
@@ -687,7 +757,7 @@ public final class DefaultTrackSelectorTest {
             trackGroups,
             periodId,
             TIMELINE);
-    assertFixedSelection(result.selections.get(0), trackGroups, higherSampleRateLowerBitrateFormat);
+    assertFixedSelection(result.selections[0], trackGroups, higherSampleRateLowerBitrateFormat);
   }
 
   /**
@@ -707,7 +777,7 @@ public final class DefaultTrackSelectorTest {
             trackGroups,
             periodId,
             TIMELINE);
-    assertFixedSelection(result.selections.get(0), trackGroups, lowerChannelFormat);
+    assertFixedSelection(result.selections[0], trackGroups, lowerChannelFormat);
   }
 
   /**
@@ -727,7 +797,7 @@ public final class DefaultTrackSelectorTest {
             trackGroups,
             periodId,
             TIMELINE);
-    assertFixedSelection(result.selections.get(0), trackGroups, lowerSampleRateFormat);
+    assertFixedSelection(result.selections[0], trackGroups, lowerSampleRateFormat);
   }
 
   /**
@@ -747,7 +817,7 @@ public final class DefaultTrackSelectorTest {
             trackGroups,
             periodId,
             TIMELINE);
-    assertFixedSelection(result.selections.get(0), trackGroups, lowerBitrateFormat);
+    assertFixedSelection(result.selections[0], trackGroups, lowerBitrateFormat);
   }
 
   /**
@@ -772,7 +842,7 @@ public final class DefaultTrackSelectorTest {
             trackGroups,
             periodId,
             TIMELINE);
-    assertFixedSelection(result.selections.get(0), trackGroups, lowerChannelHigherSampleRateFormat);
+    assertFixedSelection(result.selections[0], trackGroups, lowerChannelHigherSampleRateFormat);
   }
 
   /**
@@ -796,7 +866,7 @@ public final class DefaultTrackSelectorTest {
             trackGroups,
             periodId,
             TIMELINE);
-    assertFixedSelection(result.selections.get(0), trackGroups, lowerSampleRateHigherBitrateFormat);
+    assertFixedSelection(result.selections[0], trackGroups, lowerSampleRateHigherBitrateFormat);
   }
 
   /** Tests text track selection flags. */
@@ -816,12 +886,12 @@ public final class DefaultTrackSelectorTest {
     TrackGroupArray trackGroups = wrapFormats(forcedOnly, forcedDefault, defaultOnly, noFlag);
     TrackSelectorResult result =
         trackSelector.selectTracks(textRendererCapabilities, trackGroups, periodId, TIMELINE);
-    assertFixedSelection(result.selections.get(0), trackGroups, forcedDefault);
+    assertFixedSelection(result.selections[0], trackGroups, forcedDefault);
 
     // Ditto.
     trackGroups = wrapFormats(forcedOnly, noFlag, defaultOnly);
     result = trackSelector.selectTracks(textRendererCapabilities, trackGroups, periodId, TIMELINE);
-    assertFixedSelection(result.selections.get(0), trackGroups, defaultOnly);
+    assertFixedSelection(result.selections[0], trackGroups, defaultOnly);
 
     // Default flags are disabled and no language preference is provided, so no text track is
     // selected.
@@ -829,7 +899,7 @@ public final class DefaultTrackSelectorTest {
     trackSelector.setParameters(
         defaultParameters.buildUpon().setDisabledTextTrackSelectionFlags(C.SELECTION_FLAG_DEFAULT));
     result = trackSelector.selectTracks(textRendererCapabilities, trackGroups, periodId, TIMELINE);
-    assertNoSelection(result.selections.get(0));
+    assertNoSelection(result.selections[0]);
 
     // All selection flags are disabled and there is no language preference, so nothing should be
     // selected.
@@ -841,13 +911,13 @@ public final class DefaultTrackSelectorTest {
             .setDisabledTextTrackSelectionFlags(
                 C.SELECTION_FLAG_DEFAULT | C.SELECTION_FLAG_FORCED));
     result = trackSelector.selectTracks(textRendererCapabilities, trackGroups, periodId, TIMELINE);
-    assertNoSelection(result.selections.get(0));
+    assertNoSelection(result.selections[0]);
 
     // There is a preferred language, so a language-matching track flagged as default should
     // be selected, and the one without forced flag should be preferred.
     trackSelector.setParameters(defaultParameters.buildUpon().setPreferredTextLanguage("eng"));
     result = trackSelector.selectTracks(textRendererCapabilities, trackGroups, periodId, TIMELINE);
-    assertFixedSelection(result.selections.get(0), trackGroups, defaultOnly);
+    assertFixedSelection(result.selections[0], trackGroups, defaultOnly);
 
     // Same as above, but the default flag is disabled. If multiple tracks match the preferred
     // language, those not flagged as forced are preferred, as they likely include the contents of
@@ -859,7 +929,7 @@ public final class DefaultTrackSelectorTest {
             .buildUpon()
             .setDisabledTextTrackSelectionFlags(C.SELECTION_FLAG_DEFAULT));
     result = trackSelector.selectTracks(textRendererCapabilities, trackGroups, periodId, TIMELINE);
-    assertFixedSelection(result.selections.get(0), trackGroups, noFlag);
+    assertFixedSelection(result.selections[0], trackGroups, noFlag);
   }
 
   /**
@@ -888,23 +958,23 @@ public final class DefaultTrackSelectorTest {
     TrackGroupArray trackGroups = wrapFormats(noLanguageAudio, forcedNoLanguage);
     TrackSelectorResult result =
         trackSelector.selectTracks(rendererCapabilities, trackGroups, periodId, TIMELINE);
-    assertFixedSelection(result.selections.get(1), trackGroups, forcedNoLanguage);
+    assertFixedSelection(result.selections[1], trackGroups, forcedNoLanguage);
 
     // No forced text track should be selected because none of the forced text tracks' languages
     // matches the selected audio language.
     trackGroups = wrapFormats(noLanguageAudio, forcedEnglish, forcedGerman);
     result = trackSelector.selectTracks(rendererCapabilities, trackGroups, periodId, TIMELINE);
-    assertNoSelection(result.selections.get(1));
+    assertNoSelection(result.selections[1]);
 
     // The audio declares german. The german forced track should be selected.
     trackGroups = wrapFormats(germanAudio, forcedGerman, forcedEnglish);
     result = trackSelector.selectTracks(rendererCapabilities, trackGroups, periodId, TIMELINE);
-    assertFixedSelection(result.selections.get(1), trackGroups, forcedGerman);
+    assertFixedSelection(result.selections[1], trackGroups, forcedGerman);
 
     // Ditto
     trackGroups = wrapFormats(germanAudio, forcedEnglish, forcedGerman);
     result = trackSelector.selectTracks(rendererCapabilities, trackGroups, periodId, TIMELINE);
-    assertFixedSelection(result.selections.get(1), trackGroups, forcedGerman);
+    assertFixedSelection(result.selections[1], trackGroups, forcedGerman);
   }
 
   /**
@@ -926,34 +996,34 @@ public final class DefaultTrackSelectorTest {
     TrackGroupArray trackGroups = wrapFormats(spanish, german, undeterminedUnd, undeterminedNull);
     TrackSelectorResult result =
         trackSelector.selectTracks(textRendererCapabilites, trackGroups, periodId, TIMELINE);
-    assertNoSelection(result.selections.get(0));
+    assertNoSelection(result.selections[0]);
 
     trackSelector.setParameters(
         defaultParameters.buildUpon().setSelectUndeterminedTextLanguage(true));
     result = trackSelector.selectTracks(textRendererCapabilites, trackGroups, periodId, TIMELINE);
-    assertFixedSelection(result.selections.get(0), trackGroups, undeterminedUnd);
+    assertFixedSelection(result.selections[0], trackGroups, undeterminedUnd);
 
     ParametersBuilder builder = defaultParameters.buildUpon().setPreferredTextLanguage("spa");
     trackSelector.setParameters(builder);
     result = trackSelector.selectTracks(textRendererCapabilites, trackGroups, periodId, TIMELINE);
-    assertFixedSelection(result.selections.get(0), trackGroups, spanish);
+    assertFixedSelection(result.selections[0], trackGroups, spanish);
 
     trackGroups = wrapFormats(german, undeterminedUnd, undeterminedNull);
 
     result = trackSelector.selectTracks(textRendererCapabilites, trackGroups, periodId, TIMELINE);
-    assertNoSelection(result.selections.get(0));
+    assertNoSelection(result.selections[0]);
 
     trackSelector.setParameters(builder.setSelectUndeterminedTextLanguage(true));
     result = trackSelector.selectTracks(textRendererCapabilites, trackGroups, periodId, TIMELINE);
-    assertFixedSelection(result.selections.get(0), trackGroups, undeterminedUnd);
+    assertFixedSelection(result.selections[0], trackGroups, undeterminedUnd);
 
     trackGroups = wrapFormats(german, undeterminedNull);
     result = trackSelector.selectTracks(textRendererCapabilites, trackGroups, periodId, TIMELINE);
-    assertFixedSelection(result.selections.get(0), trackGroups, undeterminedNull);
+    assertFixedSelection(result.selections[0], trackGroups, undeterminedNull);
 
     trackGroups = wrapFormats(german);
     result = trackSelector.selectTracks(textRendererCapabilites, trackGroups, periodId, TIMELINE);
-    assertNoSelection(result.selections.get(0));
+    assertNoSelection(result.selections[0]);
   }
 
   /** Tests audio track selection when there are multiple audio renderers. */
@@ -984,20 +1054,20 @@ public final class DefaultTrackSelectorTest {
     // Without an explicit language preference, nothing should be selected.
     TrackSelectorResult result =
         trackSelector.selectTracks(rendererCapabilities, trackGroups, periodId, TIMELINE);
-    assertNoSelection(result.selections.get(0));
-    assertNoSelection(result.selections.get(1));
+    assertNoSelection(result.selections[0]);
+    assertNoSelection(result.selections[1]);
 
     // Explicit language preference for english. First renderer should be used.
     trackSelector.setParameters(defaultParameters.buildUpon().setPreferredTextLanguage("en"));
     result = trackSelector.selectTracks(rendererCapabilities, trackGroups, periodId, TIMELINE);
-    assertFixedSelection(result.selections.get(0), trackGroups, english);
-    assertNoSelection(result.selections.get(1));
+    assertFixedSelection(result.selections[0], trackGroups, english);
+    assertNoSelection(result.selections[1]);
 
     // Explicit language preference for German. Second renderer should be used.
     trackSelector.setParameters(defaultParameters.buildUpon().setPreferredTextLanguage("de"));
     result = trackSelector.selectTracks(rendererCapabilities, trackGroups, periodId, TIMELINE);
-    assertNoSelection(result.selections.get(0));
-    assertFixedSelection(result.selections.get(1), trackGroups, german);
+    assertNoSelection(result.selections[0]);
+    assertFixedSelection(result.selections[1], trackGroups, german);
   }
 
   /**
@@ -1029,7 +1099,7 @@ public final class DefaultTrackSelectorTest {
             trackGroups,
             periodId,
             TIMELINE);
-    assertFixedSelection(result.selections.get(0), trackGroups, lowerBitrateFormat);
+    assertFixedSelection(result.selections[0], trackGroups, lowerBitrateFormat);
   }
 
   /**
@@ -1061,7 +1131,7 @@ public final class DefaultTrackSelectorTest {
             trackGroups,
             periodId,
             TIMELINE);
-    assertFixedSelection(result.selections.get(0), trackGroups, higherBitrateFormat);
+    assertFixedSelection(result.selections[0], trackGroups, higherBitrateFormat);
   }
 
   @Test
@@ -1074,7 +1144,7 @@ public final class DefaultTrackSelectorTest {
             new RendererCapabilities[] {AUDIO_CAPABILITIES}, trackGroups, periodId, TIMELINE);
 
     assertThat(result.length).isEqualTo(1);
-    assertAdaptiveSelection(result.selections.get(0), trackGroups.get(0), 0, 1);
+    assertAdaptiveSelection(result.selections[0], trackGroups.get(0), 0, 1);
   }
 
   @Test
@@ -1105,7 +1175,7 @@ public final class DefaultTrackSelectorTest {
             new RendererCapabilities[] {AUDIO_CAPABILITIES}, trackGroups, periodId, TIMELINE);
 
     assertThat(result.length).isEqualTo(1);
-    assertAdaptiveSelection(result.selections.get(0), trackGroups.get(0), 0, 6);
+    assertAdaptiveSelection(result.selections[0], trackGroups.get(0), 0, 6);
   }
 
   @Test
@@ -1120,7 +1190,7 @@ public final class DefaultTrackSelectorTest {
             new RendererCapabilities[] {AUDIO_CAPABILITIES}, trackGroups, periodId, TIMELINE);
 
     assertThat(result.length).isEqualTo(1);
-    assertFixedSelection(result.selections.get(0), trackGroups.get(0), /* expectedTrack= */ 0);
+    assertFixedSelection(result.selections[0], trackGroups.get(0), /* expectedTrack= */ 0);
   }
 
   @Test
@@ -1137,7 +1207,7 @@ public final class DefaultTrackSelectorTest {
         trackSelector.selectTracks(
             new RendererCapabilities[] {AUDIO_CAPABILITIES}, trackGroups, periodId, TIMELINE);
     assertThat(result.length).isEqualTo(1);
-    assertFixedSelection(result.selections.get(0), trackGroups, highSampleRateAudioFormat);
+    assertFixedSelection(result.selections[0], trackGroups, highSampleRateAudioFormat);
 
     // The same applies if the tracks are provided in the opposite order.
     trackGroups = singleTrackGroup(lowSampleRateAudioFormat, highSampleRateAudioFormat);
@@ -1145,7 +1215,7 @@ public final class DefaultTrackSelectorTest {
         trackSelector.selectTracks(
             new RendererCapabilities[] {AUDIO_CAPABILITIES}, trackGroups, periodId, TIMELINE);
     assertThat(result.length).isEqualTo(1);
-    assertFixedSelection(result.selections.get(0), trackGroups, highSampleRateAudioFormat);
+    assertFixedSelection(result.selections[0], trackGroups, highSampleRateAudioFormat);
 
     // If we explicitly enable mixed sample rate adaptiveness, expect an adaptive selection.
     trackSelector.setParameters(
@@ -1154,7 +1224,7 @@ public final class DefaultTrackSelectorTest {
         trackSelector.selectTracks(
             new RendererCapabilities[] {AUDIO_CAPABILITIES}, trackGroups, periodId, TIMELINE);
     assertThat(result.length).isEqualTo(1);
-    assertAdaptiveSelection(result.selections.get(0), trackGroups.get(0), 0, 1);
+    assertAdaptiveSelection(result.selections[0], trackGroups.get(0), 0, 1);
   }
 
   @Test
@@ -1170,7 +1240,7 @@ public final class DefaultTrackSelectorTest {
         trackSelector.selectTracks(
             new RendererCapabilities[] {AUDIO_CAPABILITIES}, trackGroups, periodId, TIMELINE);
     assertThat(result.length).isEqualTo(1);
-    assertFixedSelection(result.selections.get(0), trackGroups, aacAudioFormat);
+    assertFixedSelection(result.selections[0], trackGroups, aacAudioFormat);
 
     // The same applies if the tracks are provided in the opposite order.
     trackGroups = singleTrackGroup(opusAudioFormat, aacAudioFormat);
@@ -1178,7 +1248,7 @@ public final class DefaultTrackSelectorTest {
         trackSelector.selectTracks(
             new RendererCapabilities[] {AUDIO_CAPABILITIES}, trackGroups, periodId, TIMELINE);
     assertThat(result.length).isEqualTo(1);
-    assertFixedSelection(result.selections.get(0), trackGroups, opusAudioFormat);
+    assertFixedSelection(result.selections[0], trackGroups, opusAudioFormat);
 
     // If we explicitly enable mixed mime type adaptiveness, expect an adaptive selection.
     trackSelector.setParameters(
@@ -1187,7 +1257,7 @@ public final class DefaultTrackSelectorTest {
         trackSelector.selectTracks(
             new RendererCapabilities[] {AUDIO_CAPABILITIES}, trackGroups, periodId, TIMELINE);
     assertThat(result.length).isEqualTo(1);
-    assertAdaptiveSelection(result.selections.get(0), trackGroups.get(0), 0, 1);
+    assertAdaptiveSelection(result.selections[0], trackGroups.get(0), 0, 1);
   }
 
   @Test
@@ -1203,7 +1273,7 @@ public final class DefaultTrackSelectorTest {
         trackSelector.selectTracks(
             new RendererCapabilities[] {AUDIO_CAPABILITIES}, trackGroups, periodId, TIMELINE);
     assertThat(result.length).isEqualTo(1);
-    assertFixedSelection(result.selections.get(0), trackGroups, surroundAudioFormat);
+    assertFixedSelection(result.selections[0], trackGroups, surroundAudioFormat);
 
     // The same applies if the tracks are provided in the opposite order.
     trackGroups = singleTrackGroup(surroundAudioFormat, stereoAudioFormat);
@@ -1211,7 +1281,7 @@ public final class DefaultTrackSelectorTest {
         trackSelector.selectTracks(
             new RendererCapabilities[] {AUDIO_CAPABILITIES}, trackGroups, periodId, TIMELINE);
     assertThat(result.length).isEqualTo(1);
-    assertFixedSelection(result.selections.get(0), trackGroups, surroundAudioFormat);
+    assertFixedSelection(result.selections[0], trackGroups, surroundAudioFormat);
 
     // If we constrain the channel count to 4 we expect a fixed selection containing the track with
     // fewer channels.
@@ -1220,7 +1290,7 @@ public final class DefaultTrackSelectorTest {
         trackSelector.selectTracks(
             new RendererCapabilities[] {AUDIO_CAPABILITIES}, trackGroups, periodId, TIMELINE);
     assertThat(result.length).isEqualTo(1);
-    assertFixedSelection(result.selections.get(0), trackGroups, stereoAudioFormat);
+    assertFixedSelection(result.selections[0], trackGroups, stereoAudioFormat);
 
     // If we constrain the channel count to 2 we expect a fixed selection containing the track with
     // fewer channels.
@@ -1229,7 +1299,7 @@ public final class DefaultTrackSelectorTest {
         trackSelector.selectTracks(
             new RendererCapabilities[] {AUDIO_CAPABILITIES}, trackGroups, periodId, TIMELINE);
     assertThat(result.length).isEqualTo(1);
-    assertFixedSelection(result.selections.get(0), trackGroups, stereoAudioFormat);
+    assertFixedSelection(result.selections[0], trackGroups, stereoAudioFormat);
 
     // If we constrain the channel count to 1 we expect a fixed selection containing the track with
     // fewer channels.
@@ -1238,7 +1308,7 @@ public final class DefaultTrackSelectorTest {
         trackSelector.selectTracks(
             new RendererCapabilities[] {AUDIO_CAPABILITIES}, trackGroups, periodId, TIMELINE);
     assertThat(result.length).isEqualTo(1);
-    assertFixedSelection(result.selections.get(0), trackGroups, stereoAudioFormat);
+    assertFixedSelection(result.selections[0], trackGroups, stereoAudioFormat);
 
     // If we disable exceeding of constraints we expect no selection.
     trackSelector.setParameters(
@@ -1250,7 +1320,7 @@ public final class DefaultTrackSelectorTest {
         trackSelector.selectTracks(
             new RendererCapabilities[] {AUDIO_CAPABILITIES}, trackGroups, periodId, TIMELINE);
     assertThat(result.length).isEqualTo(1);
-    assertNoSelection(result.selections.get(0));
+    assertNoSelection(result.selections[0]);
   }
 
   @Test
@@ -1274,7 +1344,7 @@ public final class DefaultTrackSelectorTest {
             new RendererCapabilities[] {AUDIO_CAPABILITIES}, trackGroups, periodId, TIMELINE);
 
     assertThat(result.length).isEqualTo(1);
-    assertAdaptiveSelection(result.selections.get(0), trackGroups.get(0), 1, 2);
+    assertAdaptiveSelection(result.selections[0], trackGroups.get(0), 1, 2);
   }
 
   /** Tests audio track selection when there are multiple audio renderers. */
@@ -1305,20 +1375,20 @@ public final class DefaultTrackSelectorTest {
     TrackGroupArray trackGroups = wrapFormats(english, german);
     TrackSelectorResult result =
         trackSelector.selectTracks(rendererCapabilities, trackGroups, periodId, TIMELINE);
-    assertFixedSelection(result.selections.get(0), trackGroups, english);
-    assertNoSelection(result.selections.get(1));
+    assertFixedSelection(result.selections[0], trackGroups, english);
+    assertNoSelection(result.selections[1]);
 
     // Explicit language preference for english. First renderer should be used.
     trackSelector.setParameters(defaultParameters.buildUpon().setPreferredAudioLanguage("en"));
     result = trackSelector.selectTracks(rendererCapabilities, trackGroups, periodId, TIMELINE);
-    assertFixedSelection(result.selections.get(0), trackGroups, english);
-    assertNoSelection(result.selections.get(1));
+    assertFixedSelection(result.selections[0], trackGroups, english);
+    assertNoSelection(result.selections[1]);
 
     // Explicit language preference for German. Second renderer should be used.
     trackSelector.setParameters(defaultParameters.buildUpon().setPreferredAudioLanguage("de"));
     result = trackSelector.selectTracks(rendererCapabilities, trackGroups, periodId, TIMELINE);
-    assertNoSelection(result.selections.get(0));
-    assertFixedSelection(result.selections.get(1), trackGroups, german);
+    assertNoSelection(result.selections[0]);
+    assertFixedSelection(result.selections[1], trackGroups, german);
   }
 
   @Test
@@ -1331,7 +1401,7 @@ public final class DefaultTrackSelectorTest {
             new RendererCapabilities[] {VIDEO_CAPABILITIES}, trackGroups, periodId, TIMELINE);
 
     assertThat(result.length).isEqualTo(1);
-    assertAdaptiveSelection(result.selections.get(0), trackGroups.get(0), 0, 1);
+    assertAdaptiveSelection(result.selections[0], trackGroups.get(0), 0, 1);
   }
 
   @Test
@@ -1355,7 +1425,7 @@ public final class DefaultTrackSelectorTest {
             periodId,
             TIMELINE);
     assertThat(result.length).isEqualTo(1);
-    assertAdaptiveSelection(result.selections.get(0), trackGroups.get(0), 0, 1);
+    assertAdaptiveSelection(result.selections[0], trackGroups.get(0), 0, 1);
 
     // If we explicitly disable non-seamless adaptiveness, expect a fixed selection.
     trackSelector.setParameters(
@@ -1367,7 +1437,7 @@ public final class DefaultTrackSelectorTest {
             periodId,
             TIMELINE);
     assertThat(result.length).isEqualTo(1);
-    assertFixedSelection(result.selections.get(0), trackGroups.get(0), 0);
+    assertFixedSelection(result.selections[0], trackGroups.get(0), 0);
   }
 
   @Test
@@ -1383,7 +1453,7 @@ public final class DefaultTrackSelectorTest {
         trackSelector.selectTracks(
             new RendererCapabilities[] {VIDEO_CAPABILITIES}, trackGroups, periodId, TIMELINE);
     assertThat(result.length).isEqualTo(1);
-    assertFixedSelection(result.selections.get(0), trackGroups, h264VideoFormat);
+    assertFixedSelection(result.selections[0], trackGroups, h264VideoFormat);
 
     // The same applies if the tracks are provided in the opposite order.
     trackGroups = singleTrackGroup(h265VideoFormat, h264VideoFormat);
@@ -1391,7 +1461,7 @@ public final class DefaultTrackSelectorTest {
         trackSelector.selectTracks(
             new RendererCapabilities[] {VIDEO_CAPABILITIES}, trackGroups, periodId, TIMELINE);
     assertThat(result.length).isEqualTo(1);
-    assertFixedSelection(result.selections.get(0), trackGroups, h265VideoFormat);
+    assertFixedSelection(result.selections[0], trackGroups, h265VideoFormat);
 
     // If we explicitly enable mixed mime type adaptiveness, expect an adaptive selection.
     trackSelector.setParameters(
@@ -1400,7 +1470,7 @@ public final class DefaultTrackSelectorTest {
         trackSelector.selectTracks(
             new RendererCapabilities[] {VIDEO_CAPABILITIES}, trackGroups, periodId, TIMELINE);
     assertThat(result.length).isEqualTo(1);
-    assertAdaptiveSelection(result.selections.get(0), trackGroups.get(0), 0, 1);
+    assertAdaptiveSelection(result.selections[0], trackGroups.get(0), 0, 1);
   }
 
   @Test
@@ -1424,7 +1494,22 @@ public final class DefaultTrackSelectorTest {
             new RendererCapabilities[] {VIDEO_CAPABILITIES}, trackGroups, periodId, TIMELINE);
 
     assertThat(result.length).isEqualTo(1);
-    assertAdaptiveSelection(result.selections.get(0), trackGroups.get(0), 1, 2);
+    assertAdaptiveSelection(result.selections[0], trackGroups.get(0), 1, 2);
+  }
+
+  @Test
+  public void selectTracks_multipleVideoTracksWithoutBitrate_onlySelectsSingleTrack()
+      throws Exception {
+    TrackGroupArray trackGroups =
+        singleTrackGroup(
+            VIDEO_FORMAT.buildUpon().setId("0").setAverageBitrate(Format.NO_VALUE).build(),
+            VIDEO_FORMAT.buildUpon().setId("1").setAverageBitrate(Format.NO_VALUE).build());
+    TrackSelectorResult result =
+        trackSelector.selectTracks(
+            new RendererCapabilities[] {VIDEO_CAPABILITIES}, trackGroups, periodId, TIMELINE);
+
+    assertThat(result.length).isEqualTo(1);
+    assertFixedSelection(result.selections[0], trackGroups.get(0), /* expectedTrack= */ 0);
   }
 
   @Test
@@ -1449,9 +1534,9 @@ public final class DefaultTrackSelectorTest {
 
     assertThat(result.length).isEqualTo(2);
     assertAdaptiveSelection(
-        result.selections.get(0), trackGroups.get(0), /* expectedTracks...= */ 1, 0);
+        result.selections[0], trackGroups.get(0), /* expectedTracks...= */ 1, 0);
     assertAdaptiveSelection(
-        result.selections.get(1), trackGroups.get(1), /* expectedTracks...= */ 1, 0);
+        result.selections[1], trackGroups.get(1), /* expectedTracks...= */ 1, 0);
 
     // Multiple adaptive selection disallowed.
     trackSelector.setParameters(
@@ -1465,8 +1550,8 @@ public final class DefaultTrackSelectorTest {
 
     assertThat(result.length).isEqualTo(2);
     assertAdaptiveSelection(
-        result.selections.get(0), trackGroups.get(0), /* expectedTracks...= */ 1, 0);
-    assertFixedSelection(result.selections.get(1), trackGroups.get(1), /* expectedTrack= */ 1);
+        result.selections[0], trackGroups.get(0), /* expectedTracks...= */ 1, 0);
+    assertFixedSelection(result.selections[1], trackGroups.get(1), /* expectedTrack= */ 1);
   }
 
   @Test
@@ -1483,7 +1568,7 @@ public final class DefaultTrackSelectorTest {
         trackSelector.selectTracks(
             new RendererCapabilities[] {VIDEO_CAPABILITIES}, trackGroups, periodId, TIMELINE);
     assertThat(result.length).isEqualTo(1);
-    assertFixedSelection(result.selections.get(0), trackGroups, formatVp9);
+    assertFixedSelection(result.selections[0], trackGroups, formatVp9);
 
     trackSelector.setParameters(
         trackSelector
@@ -1493,7 +1578,7 @@ public final class DefaultTrackSelectorTest {
         trackSelector.selectTracks(
             new RendererCapabilities[] {VIDEO_CAPABILITIES}, trackGroups, periodId, TIMELINE);
     assertThat(result.length).isEqualTo(1);
-    assertFixedSelection(result.selections.get(0), trackGroups, formatVp9);
+    assertFixedSelection(result.selections[0], trackGroups, formatVp9);
 
     trackSelector.setParameters(
         trackSelector
@@ -1503,7 +1588,7 @@ public final class DefaultTrackSelectorTest {
         trackSelector.selectTracks(
             new RendererCapabilities[] {VIDEO_CAPABILITIES}, trackGroups, periodId, TIMELINE);
     assertThat(result.length).isEqualTo(1);
-    assertFixedSelection(result.selections.get(0), trackGroups, formatH264);
+    assertFixedSelection(result.selections[0], trackGroups, formatH264);
 
     // Select first in the list if no preference is specified.
     trackSelector.setParameters(
@@ -1512,7 +1597,7 @@ public final class DefaultTrackSelectorTest {
         trackSelector.selectTracks(
             new RendererCapabilities[] {VIDEO_CAPABILITIES}, trackGroups, periodId, TIMELINE);
     assertThat(result.length).isEqualTo(1);
-    assertFixedSelection(result.selections.get(0), trackGroups, formatAv1);
+    assertFixedSelection(result.selections[0], trackGroups, formatAv1);
   }
 
   @Test
@@ -1529,7 +1614,7 @@ public final class DefaultTrackSelectorTest {
         trackSelector.selectTracks(
             new RendererCapabilities[] {AUDIO_CAPABILITIES}, trackGroups, periodId, TIMELINE);
     assertThat(result.length).isEqualTo(1);
-    assertFixedSelection(result.selections.get(0), trackGroups, formatAc4);
+    assertFixedSelection(result.selections[0], trackGroups, formatAc4);
 
     trackSelector.setParameters(
         trackSelector
@@ -1539,7 +1624,7 @@ public final class DefaultTrackSelectorTest {
         trackSelector.selectTracks(
             new RendererCapabilities[] {AUDIO_CAPABILITIES}, trackGroups, periodId, TIMELINE);
     assertThat(result.length).isEqualTo(1);
-    assertFixedSelection(result.selections.get(0), trackGroups, formatAc4);
+    assertFixedSelection(result.selections[0], trackGroups, formatAc4);
 
     trackSelector.setParameters(
         trackSelector
@@ -1549,7 +1634,7 @@ public final class DefaultTrackSelectorTest {
         trackSelector.selectTracks(
             new RendererCapabilities[] {AUDIO_CAPABILITIES}, trackGroups, periodId, TIMELINE);
     assertThat(result.length).isEqualTo(1);
-    assertFixedSelection(result.selections.get(0), trackGroups, formatEAc3);
+    assertFixedSelection(result.selections[0], trackGroups, formatEAc3);
 
     // Select first in the list if no preference is specified.
     trackSelector.setParameters(
@@ -1558,13 +1643,13 @@ public final class DefaultTrackSelectorTest {
         trackSelector.selectTracks(
             new RendererCapabilities[] {AUDIO_CAPABILITIES}, trackGroups, periodId, TIMELINE);
     assertThat(result.length).isEqualTo(1);
-    assertFixedSelection(result.selections.get(0), trackGroups, formatAac);
+    assertFixedSelection(result.selections[0], trackGroups, formatAac);
   }
 
   private static void assertSelections(TrackSelectorResult result, TrackSelection[] expected) {
     assertThat(result.length).isEqualTo(expected.length);
     for (int i = 0; i < expected.length; i++) {
-      assertThat(result.selections.get(i)).isEqualTo(expected[i]);
+      assertThat(result.selections[i]).isEqualTo(expected[i]);
     }
   }
 
@@ -1667,6 +1752,7 @@ public final class DefaultTrackSelectorTest {
         /* preferredVideoMimeTypes= */ ImmutableList.of(MimeTypes.VIDEO_AV1, MimeTypes.VIDEO_H264),
         // Audio
         /* preferredAudioLanguages= */ ImmutableList.of("zh", "jp"),
+        /* preferredAudioRoleFlags= */ C.ROLE_FLAG_COMMENTARY,
         /* maxAudioChannelCount= */ 10,
         /* maxAudioBitrate= */ 11,
         /* exceedAudioConstraintsIfNecessary= */ false,
@@ -1701,11 +1787,11 @@ public final class DefaultTrackSelectorTest {
     @Capabilities private final int supportValue;
 
     /**
-     * Returns {@link FakeRendererCapabilities} that advertises adaptive support for all
-     * tracks of the given type.
+     * Returns {@link FakeRendererCapabilities} that advertises adaptive support for all tracks of
+     * the given type.
      *
      * @param trackType the track type of all formats that this renderer capabilities advertises
-     * support for.
+     *     support for.
      */
     FakeRendererCapabilities(int trackType) {
       this(
@@ -1750,7 +1836,6 @@ public final class DefaultTrackSelectorTest {
     public int supportsMixedMimeTypeAdaptation() {
       return ADAPTIVE_SEAMLESS;
     }
-
   }
 
   /**
@@ -1799,7 +1884,5 @@ public final class DefaultTrackSelectorTest {
     public int supportsMixedMimeTypeAdaptation() {
       return ADAPTIVE_SEAMLESS;
     }
-
   }
-
 }

@@ -36,9 +36,7 @@ import org.checkerframework.checker.nullness.qual.EnsuresNonNull;
 import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
 import org.checkerframework.checker.nullness.qual.RequiresNonNull;
 
-/**
- * Parses a continuous H.265 byte stream and extracts individual frames.
- */
+/** Parses a continuous H.265 byte stream and extracts individual frames. */
 public final class H265Reader implements ElementaryStreamReader {
 
   private static final String TAG = "H265Reader";
@@ -334,6 +332,26 @@ public final class H265Reader implements ElementaryStreamReader {
         } else {
           Log.w(TAG, "Unexpected aspect_ratio_idc value: " + aspectRatioIdc);
         }
+      }
+      if (bitArray.readBit()) { // overscan_info_present_flag
+        bitArray.skipBit(); // overscan_appropriate_flag
+      }
+      if (bitArray.readBit()) { // video_signal_type_present_flag
+        bitArray.skipBits(4); // video_format, video_full_range_flag
+        if (bitArray.readBit()) { // colour_description_present_flag
+          // colour_primaries, transfer_characteristics, matrix_coeffs
+          bitArray.skipBits(24);
+        }
+      }
+      if (bitArray.readBit()) { // chroma_loc_info_present_flag
+        bitArray.readUnsignedExpGolombCodedInt(); // chroma_sample_loc_type_top_field
+        bitArray.readUnsignedExpGolombCodedInt(); // chroma_sample_loc_type_bottom_field
+      }
+      bitArray.skipBit(); // neutral_chroma_indication_flag
+      if (bitArray.readBit()) { // field_seq_flag
+        // field_seq_flag equal to 1 indicates that the coded video sequence conveys pictures that
+        // represent fields, which means that frame height is double the picture height.
+        picHeightInLumaSamples *= 2;
       }
     }
 

@@ -28,15 +28,11 @@ import java.util.List;
 import java.util.Random;
 import org.checkerframework.checker.nullness.compatqual.NullableType;
 
-/**
- * A {@link TrackSelection} whose selected track is updated randomly.
- */
+/** An {@link ExoTrackSelection} whose selected track is updated randomly. */
 public final class RandomTrackSelection extends BaseTrackSelection {
 
-  /**
-   * Factory for {@link RandomTrackSelection} instances.
-   */
-  public static final class Factory implements TrackSelection.Factory {
+  /** Factory for {@link RandomTrackSelection} instances. */
+  public static final class Factory implements ExoTrackSelection.Factory {
 
     private final Random random;
 
@@ -44,22 +40,22 @@ public final class RandomTrackSelection extends BaseTrackSelection {
       random = new Random();
     }
 
-    /**
-     * @param seed A seed for the {@link Random} instance used by the factory.
-     */
+    /** @param seed A seed for the {@link Random} instance used by the factory. */
     public Factory(int seed) {
       random = new Random(seed);
     }
 
     @Override
-    public @NullableType TrackSelection[] createTrackSelections(
+    public @NullableType ExoTrackSelection[] createTrackSelections(
         @NullableType Definition[] definitions,
         BandwidthMeter bandwidthMeter,
         MediaPeriodId mediaPeriodId,
         Timeline timeline) {
       return TrackSelectionUtil.createTrackSelectionsForDefinitions(
           definitions,
-          definition -> new RandomTrackSelection(definition.group, definition.tracks, random));
+          definition ->
+              new RandomTrackSelection(
+                  definition.group, definition.tracks, definition.type, random));
     }
   }
 
@@ -71,31 +67,10 @@ public final class RandomTrackSelection extends BaseTrackSelection {
    * @param group The {@link TrackGroup}. Must not be null.
    * @param tracks The indices of the selected tracks within the {@link TrackGroup}. Must not be
    *     null or empty. May be in any order.
-   */
-  public RandomTrackSelection(TrackGroup group, int... tracks) {
-    super(group, tracks);
-    random = new Random();
-    selectedIndex = random.nextInt(length);
-  }
-
-  /**
-   * @param group The {@link TrackGroup}. Must not be null.
-   * @param tracks The indices of the selected tracks within the {@link TrackGroup}. Must not be
-   *     null or empty. May be in any order.
-   * @param seed A seed for the {@link Random} instance used to update the selected track.
-   */
-  public RandomTrackSelection(TrackGroup group, int[] tracks, long seed) {
-    this(group, tracks, new Random(seed));
-  }
-
-  /**
-   * @param group The {@link TrackGroup}. Must not be null.
-   * @param tracks The indices of the selected tracks within the {@link TrackGroup}. Must not be
-   *     null or empty. May be in any order.
    * @param random A source of random numbers.
    */
-  public RandomTrackSelection(TrackGroup group, int[] tracks, Random random) {
-    super(group, tracks);
+  public RandomTrackSelection(TrackGroup group, int[] tracks, int type, Random random) {
+    super(group, tracks, type);
     this.random = random;
     selectedIndex = random.nextInt(length);
   }
@@ -144,5 +119,4 @@ public final class RandomTrackSelection extends BaseTrackSelection {
   public Object getSelectionData() {
     return null;
   }
-
 }

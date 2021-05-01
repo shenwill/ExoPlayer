@@ -23,6 +23,7 @@ import android.view.Surface;
 import android.widget.FrameLayout;
 import androidx.annotation.RequiresApi;
 import androidx.test.core.app.ApplicationProvider;
+import androidx.test.platform.app.InstrumentationRegistry;
 import com.google.android.exoplayer2.C;
 import com.google.android.exoplayer2.Format;
 import com.google.android.exoplayer2.MediaItem;
@@ -46,9 +47,9 @@ import com.google.android.exoplayer2.testutil.ExoHostedTest;
 import com.google.android.exoplayer2.testutil.HostActivity;
 import com.google.android.exoplayer2.testutil.HostActivity.HostedTest;
 import com.google.android.exoplayer2.trackselection.DefaultTrackSelector;
+import com.google.android.exoplayer2.trackselection.ExoTrackSelection;
 import com.google.android.exoplayer2.trackselection.MappingTrackSelector;
 import com.google.android.exoplayer2.trackselection.RandomTrackSelection;
-import com.google.android.exoplayer2.trackselection.TrackSelection;
 import com.google.android.exoplayer2.upstream.DataSource;
 import com.google.android.exoplayer2.upstream.DefaultDataSourceFactory;
 import com.google.android.exoplayer2.upstream.DefaultHttpDataSourceFactory;
@@ -186,7 +187,9 @@ import java.util.List;
 
   private DashHostedTest createDashHostedTest(
       boolean canIncludeAdditionalVideoFormats, boolean isCddLimitedRetry) {
-    MetricsLogger metricsLogger = MetricsLogger.Factory.createDefault(tag);
+    MetricsLogger metricsLogger =
+        MetricsLogger.DEFAULT_FACTORY.create(
+            InstrumentationRegistry.getInstrumentation(), tag, streamName);
     return new DashHostedTest(tag, streamName, manifestUrl, metricsLogger, fullPlaybackNoSeeking,
         audioFormat, canIncludeAdditionalVideoFormats, isCddLimitedRetry, actionSchedule,
         offlineLicenseKeySetId, widevineLicenseUrl, useL1Widevine, dataSourceFactory,
@@ -260,7 +263,7 @@ import java.util.List;
     @Override
     protected DrmSessionManager buildDrmSessionManager() {
       if (widevineLicenseUrl == null) {
-        return DrmSessionManager.getDummyDrmSessionManager();
+        return DrmSessionManager.DRM_UNSUPPORTED;
       }
       MediaDrmCallback drmCallback =
           new HttpMediaDrmCallback(widevineLicenseUrl, new DefaultHttpDataSourceFactory());
@@ -344,15 +347,20 @@ import java.util.List;
             videoCounters.inputBufferCount - 1, videoCounters.inputBufferCount);
       }
       try {
-        int droppedFrameLimit = (int) Math.ceil(MAX_DROPPED_VIDEO_FRAME_FRACTION
-            * DecoderCountersUtil.getTotalBufferCount(videoCounters));
-        // Assert that performance is acceptable.
-        // Assert that total dropped frames were within limit.
-        DecoderCountersUtil.assertDroppedBufferLimit(tag + VIDEO_TAG_SUFFIX, videoCounters,
-            droppedFrameLimit);
-        // Assert that consecutive dropped frames were within limit.
-        DecoderCountersUtil.assertConsecutiveDroppedBufferLimit(tag + VIDEO_TAG_SUFFIX,
-            videoCounters, MAX_CONSECUTIVE_DROPPED_VIDEO_FRAMES);
+        if (!shouldSkipDroppedOutputBufferPerformanceAssertions()) {
+          int droppedFrameLimit =
+              (int)
+                  Math.ceil(
+                      MAX_DROPPED_VIDEO_FRAME_FRACTION
+                          * DecoderCountersUtil.getTotalBufferCount(videoCounters));
+          // Assert that performance is acceptable.
+          // Assert that total dropped frames were within limit.
+          DecoderCountersUtil.assertDroppedBufferLimit(
+              tag + VIDEO_TAG_SUFFIX, videoCounters, droppedFrameLimit);
+          // Assert that consecutive dropped frames were within limit.
+          DecoderCountersUtil.assertConsecutiveDroppedBufferLimit(
+              tag + VIDEO_TAG_SUFFIX, videoCounters, MAX_CONSECUTIVE_DROPPED_VIDEO_FRAMES);
+        }
       } catch (AssertionError e) {
         if (trackSelector.includedAdditionalVideoFormats) {
           // Retry limiting to CDD mandated formats (b/28220076).
@@ -363,6 +371,11 @@ import java.util.List;
         }
       }
     }
+  }
+
+  /** Provides a hook to skip dropped output buffer assertions in specific circumstances. */
+  private static boolean shouldSkipDroppedOutputBufferPerformanceAssertions() {
+    return false;
   }
 
   private static final class DashTestTrackSelector extends DefaultTrackSelector {
@@ -386,7 +399,7 @@ import java.util.List;
     }
 
     @Override
-    protected TrackSelection.Definition[] selectAllTracks(
+    protected ExoTrackSelection.Definition[] selectAllTracks(
         MappedTrackInfo mappedTrackInfo,
         int[][][] rendererFormatSupports,
         int[] rendererMixedMimeTypeAdaptationSupports,
@@ -399,10 +412,10 @@ import java.util.List;
       TrackGroupArray audioTrackGroups = mappedTrackInfo.getTrackGroups(AUDIO_RENDERER_INDEX);
       Assertions.checkState(videoTrackGroups.length == 1);
       Assertions.checkState(audioTrackGroups.length == 1);
-      TrackSelection.Definition[] definitions =
-          new TrackSelection.Definition[mappedTrackInfo.getRendererCount()];
+      ExoTrackSelection.Definition[] definitions =
+          new ExoTrackSelection.Definition[mappedTrackInfo.getRendererCount()];
       definitions[VIDEO_RENDERER_INDEX] =
-          new TrackSelection.Definition(
+          new ExoTrackSelection.Definition(
               videoTrackGroups.get(0),
               getVideoTrackIndices(
                   videoTrackGroups.get(0),
@@ -410,7 +423,7 @@ import java.util.List;
                   videoFormatIds,
                   canIncludeAdditionalVideoFormats));
       definitions[AUDIO_RENDERER_INDEX] =
-          new TrackSelection.Definition(
+          new ExoTrackSelection.Definition(
               audioTrackGroups.get(0), getTrackIndex(audioTrackGroups.get(0), audioFormatId));
       includedAdditionalVideoFormats =
           definitions[VIDEO_RENDERER_INDEX].tracks.length > videoFormatIds.length;

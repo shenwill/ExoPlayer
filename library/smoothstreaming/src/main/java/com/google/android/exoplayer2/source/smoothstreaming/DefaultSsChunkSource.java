@@ -34,7 +34,7 @@ import com.google.android.exoplayer2.source.chunk.MediaChunk;
 import com.google.android.exoplayer2.source.chunk.MediaChunkIterator;
 import com.google.android.exoplayer2.source.smoothstreaming.manifest.SsManifest;
 import com.google.android.exoplayer2.source.smoothstreaming.manifest.SsManifest.StreamElement;
-import com.google.android.exoplayer2.trackselection.TrackSelection;
+import com.google.android.exoplayer2.trackselection.ExoTrackSelection;
 import com.google.android.exoplayer2.upstream.DataSource;
 import com.google.android.exoplayer2.upstream.DataSpec;
 import com.google.android.exoplayer2.upstream.LoaderErrorThrower;
@@ -43,9 +43,7 @@ import com.google.android.exoplayer2.util.Assertions;
 import java.io.IOException;
 import java.util.List;
 
-/**
- * A default {@link SsChunkSource} implementation.
- */
+/** A default {@link SsChunkSource} implementation. */
 public class DefaultSsChunkSource implements SsChunkSource {
 
   public static final class Factory implements SsChunkSource.Factory {
@@ -61,7 +59,7 @@ public class DefaultSsChunkSource implements SsChunkSource {
         LoaderErrorThrower manifestLoaderErrorThrower,
         SsManifest manifest,
         int elementIndex,
-        TrackSelection trackSelection,
+        ExoTrackSelection trackSelection,
         @Nullable TransferListener transferListener) {
       DataSource dataSource = dataSourceFactory.createDataSource();
       if (transferListener != null) {
@@ -78,7 +76,7 @@ public class DefaultSsChunkSource implements SsChunkSource {
   private final ChunkExtractor[] chunkExtractors;
   private final DataSource dataSource;
 
-  private TrackSelection trackSelection;
+  private ExoTrackSelection trackSelection;
   private SsManifest manifest;
   private int currentManifestChunkOffset;
 
@@ -95,7 +93,7 @@ public class DefaultSsChunkSource implements SsChunkSource {
       LoaderErrorThrower manifestLoaderErrorThrower,
       SsManifest manifest,
       int streamElementIndex,
-      TrackSelection trackSelection,
+      ExoTrackSelection trackSelection,
       DataSource dataSource) {
     this.manifestLoaderErrorThrower = manifestLoaderErrorThrower;
     this.manifest = manifest;
@@ -163,7 +161,7 @@ public class DefaultSsChunkSource implements SsChunkSource {
   }
 
   @Override
-  public void updateTrackSelection(TrackSelection trackSelection) {
+  public void updateTrackSelection(ExoTrackSelection trackSelection) {
     this.trackSelection = trackSelection;
   }
 

@@ -135,7 +135,7 @@ public class HlsMediaPlaylistParserTest {
         .isEqualTo("https://priv.example.com/key.php?r=2682");
     // 0xA7A == 2682.
     assertThat(segment.encryptionIV).isNotNull();
-    assertThat(Util.toUpperInvariant(segment.encryptionIV)).isEqualTo("A7A");
+    assertThat(segment.encryptionIV).ignoringCase().isEqualTo("A7A");
     assertThat(segment.byteRangeLength).isEqualTo(51740);
     assertThat(segment.byteRangeOffset).isEqualTo(2147586650L);
     assertThat(segment.url).isEqualTo("https://priv.example.com/fileSequence2682.ts");
@@ -148,10 +148,56 @@ public class HlsMediaPlaylistParserTest {
         .isEqualTo("https://priv.example.com/key.php?r=2682");
     // 0xA7B == 2683.
     assertThat(segment.encryptionIV).isNotNull();
-    assertThat(Util.toUpperInvariant(segment.encryptionIV)).isEqualTo("A7B");
+    assertThat(segment.encryptionIV).ignoringCase().isEqualTo("A7B");
     assertThat(segment.byteRangeLength).isEqualTo(C.LENGTH_UNSET);
     assertThat(segment.byteRangeOffset).isEqualTo(0);
     assertThat(segment.url).isEqualTo("https://priv.example.com/fileSequence2683.ts");
+  }
+
+  @Test
+  public void parseMediaPlaylist_withByteRanges() throws Exception {
+    Uri playlistUri = Uri.parse("https://example.com/test.m3u8");
+    String playlistString =
+        "#EXTM3U\n"
+            + "#EXT-X-VERSION:3\n"
+            + "#EXT-X-TARGETDURATION:5\n"
+            + "\n"
+            + "#EXT-X-BYTERANGE:200@100\n"
+            + "#EXT-X-MAP:URI=\"stream.mp4\"\n"
+            + "#EXTINF:5,\n"
+            + "#EXT-X-BYTERANGE:400\n"
+            + "stream.mp4\n"
+            + "#EXTINF:5,\n"
+            + "#EXT-X-BYTERANGE:500\n"
+            + "stream.mp4\n"
+            + "#EXT-X-DISCONTINUITY\n"
+            + "#EXT-X-MAP:URI=\"init.mp4\"\n"
+            + "#EXTINF:5,\n"
+            + "segment.mp4\n";
+    InputStream inputStream = new ByteArrayInputStream(Util.getUtf8Bytes(playlistString));
+    HlsPlaylist playlist = new HlsPlaylistParser().parse(playlistUri, inputStream);
+
+    HlsMediaPlaylist mediaPlaylist = (HlsMediaPlaylist) playlist;
+    List<Segment> segments = mediaPlaylist.segments;
+
+    assertThat(segments).isNotNull();
+    assertThat(segments).hasSize(3);
+
+    Segment segment = segments.get(0);
+    assertThat(segment.initializationSegment.byteRangeOffset).isEqualTo(100);
+    assertThat(segment.initializationSegment.byteRangeLength).isEqualTo(200);
+    assertThat(segment.byteRangeOffset).isEqualTo(300);
+    assertThat(segment.byteRangeLength).isEqualTo(400);
+
+    segment = segments.get(1);
+    assertThat(segment.byteRangeOffset).isEqualTo(700);
+    assertThat(segment.byteRangeLength).isEqualTo(500);
+
+    segment = segments.get(2);
+    assertThat(segment.initializationSegment.byteRangeOffset).isEqualTo(0);
+    assertThat(segment.initializationSegment.byteRangeLength).isEqualTo(C.LENGTH_UNSET);
+    assertThat(segment.byteRangeOffset).isEqualTo(0);
+    assertThat(segment.byteRangeLength).isEqualTo(C.LENGTH_UNSET);
   }
 
   @Test
@@ -1172,6 +1218,33 @@ public class HlsMediaPlaylistParserTest {
       // Expected because the initialization segment does not have a defined initialization vector,
       // although it is affected by an EXT-X-KEY tag.
     }
+  }
+
+  @Test
+  public void iframeOnly_withExplicitInitSegment_hasCorrectByteRange() throws IOException {
+    Uri playlistUri = Uri.parse("https://example.com/test3.m3u8");
+    String playlistString =
+        "#EXTM3U\n"
+            + "#EXT-X-VERSION:6\n"
+            + "#EXT-X-MEDIA-SEQUENCE:1616630672\n"
+            + "#EXT-X-TARGETDURATION:7\n"
+            + "#EXT-X-DISCONTINUITY-SEQUENCE:491 \n"
+            + "#EXT-X-MAP:URI=\"iframe0.tsv\",BYTERANGE=\"564@0\"\n"
+            + "\n"
+            + "#EXT-X-I-FRAMES-ONLY\n"
+            + "#EXT-X-PROGRAM-DATE-TIME:2021-04-12T17:08:22.000Z\n"
+            + "#EXTINF:1.001000,\n"
+            + "#EXT-X-BYTERANGE:121260@1128\n"
+            + "iframe0.tsv";
+
+    InputStream inputStream = new ByteArrayInputStream(Util.getUtf8Bytes(playlistString));
+    HlsMediaPlaylist standalonePlaylist =
+        (HlsMediaPlaylist) new HlsPlaylistParser().parse(playlistUri, inputStream);
+    @Nullable Segment initSegment = standalonePlaylist.segments.get(0).initializationSegment;
+
+    assertThat(standalonePlaylist.segments).hasSize(1);
+    assertThat(initSegment.byteRangeLength).isEqualTo(564);
+    assertThat(initSegment.byteRangeOffset).isEqualTo(0);
   }
 
   @Test

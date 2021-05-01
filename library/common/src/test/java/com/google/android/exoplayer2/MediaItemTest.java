@@ -38,18 +38,12 @@ public class MediaItemTest {
   private static final String URI_STRING = "http://www.google.com";
 
   @Test
-  public void builder_needsUriOrMediaId() {
-    assertThrows(NullPointerException.class, () -> new MediaItem.Builder().build());
-  }
-
-  @Test
   public void builderWithUri_setsUri() {
     Uri uri = Uri.parse(URI_STRING);
 
     MediaItem mediaItem = MediaItem.fromUri(uri);
 
-    assertThat(mediaItem.playbackProperties.uri.toString()).isEqualTo(URI_STRING);
-    assertThat(mediaItem.mediaId).isEqualTo(URI_STRING);
+    assertThat(mediaItem.playbackProperties.uri).isEqualTo(uri);
     assertThat(mediaItem.mediaMetadata).isNotNull();
   }
 
@@ -58,7 +52,13 @@ public class MediaItemTest {
     MediaItem mediaItem = MediaItem.fromUri(URI_STRING);
 
     assertThat(mediaItem.playbackProperties.uri.toString()).isEqualTo(URI_STRING);
-    assertThat(mediaItem.mediaId).isEqualTo(URI_STRING);
+  }
+
+  @Test
+  public void builderWithoutMediaId_usesDefaultMediaId() {
+    MediaItem mediaItem = MediaItem.fromUri(URI_STRING);
+
+    assertThat(mediaItem.mediaId).isEqualTo(MediaItem.DEFAULT_MEDIA_ID);
   }
 
   @Test
@@ -299,7 +299,7 @@ public class MediaItemTest {
 
   @Test
   public void builderSetMediaMetadata_setsMetadata() {
-    MediaMetadata mediaMetadata = new MediaMetadata.Builder().setTitle("title").build();
+    MediaMetadata mediaMetadata = new MediaMetadata.Builder().setTrackTitle("title").build();
 
     MediaItem mediaItem =
         new MediaItem.Builder().setUri(URI_STRING).setMediaMetadata(mediaMetadata).build();
@@ -368,7 +368,7 @@ public class MediaItemTest {
             .setDrmSessionForClearTypes(Collections.singletonList(C.TRACK_TYPE_AUDIO))
             .setDrmKeySetId(new byte[] {1, 2, 3})
             .setMediaId("mediaId")
-            .setMediaMetadata(new MediaMetadata.Builder().setTitle("title").build())
+            .setMediaMetadata(new MediaMetadata.Builder().setTrackTitle("title").build())
             .setMimeType(MimeTypes.APPLICATION_MP4)
             .setUri(URI_STRING)
             .setStreamKeys(Collections.singletonList(new StreamKey(1, 0, 0)))
@@ -392,5 +392,35 @@ public class MediaItemTest {
     MediaItem copy = mediaItem.buildUpon().build();
 
     assertThat(copy).isEqualTo(mediaItem);
+  }
+
+  @Test
+  public void roundTripViaBundle_withoutPlaybackProperties_yieldsEqualInstance() {
+    MediaItem mediaItem =
+        new MediaItem.Builder()
+            .setMediaId("mediaId")
+            .setLiveTargetOffsetMs(20_000)
+            .setLiveMinOffsetMs(2_222)
+            .setLiveMaxOffsetMs(4_444)
+            .setLiveMinPlaybackSpeed(.9f)
+            .setLiveMaxPlaybackSpeed(1.1f)
+            .setMediaMetadata(new MediaMetadata.Builder().setTrackTitle("title").build())
+            .setClipStartPositionMs(100)
+            .setClipEndPositionMs(1_000)
+            .setClipRelativeToDefaultPosition(true)
+            .setClipRelativeToLiveWindow(true)
+            .setClipStartsAtKeyFrame(true)
+            .build();
+
+    assertThat(mediaItem.playbackProperties).isNull();
+    assertThat(MediaItem.CREATOR.fromBundle(mediaItem.toBundle())).isEqualTo(mediaItem);
+  }
+
+  @Test
+  public void roundTripViaBundle_withPlaybackProperties_dropsPlaybackProperties() {
+    MediaItem mediaItem = new MediaItem.Builder().setUri(URI_STRING).build();
+
+    assertThat(mediaItem.playbackProperties).isNotNull();
+    assertThat(MediaItem.CREATOR.fromBundle(mediaItem.toBundle()).playbackProperties).isNull();
   }
 }

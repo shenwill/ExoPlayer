@@ -36,6 +36,7 @@ import com.google.android.exoplayer2.util.ParsableByteArray;
 import com.google.android.exoplayer2.util.TimestampAdjuster;
 import com.google.android.exoplayer2.util.UriUtil;
 import com.google.android.exoplayer2.util.Util;
+import com.google.common.base.Ascii;
 import com.google.common.collect.ImmutableList;
 import java.io.EOFException;
 import java.io.IOException;
@@ -391,15 +392,10 @@ import org.checkerframework.checker.nullness.qual.RequiresNonNull;
 
   @RequiresNonNull("output")
   private void loadMedia() throws IOException {
-    if (!isMasterTimestampSource) {
-      try {
-        timestampAdjuster.waitUntilInitialized();
-      } catch (InterruptedException e) {
-        throw new InterruptedIOException();
-      }
-    } else if (timestampAdjuster.getFirstSampleTimestampUs() == TimestampAdjuster.DO_NOT_OFFSET) {
-      // We're the master and we haven't set the desired first sample timestamp yet.
-      timestampAdjuster.setFirstSampleTimestampUs(startTimeUs);
+    try {
+      timestampAdjuster.sharedInitializeOrWait(isMasterTimestampSource, startTimeUs);
+    } catch (InterruptedException e) {
+      throw new InterruptedIOException();
     }
     feedDataToExtractor(dataSource, dataSpec, mediaSegmentEncrypted);
   }
@@ -545,7 +541,7 @@ import org.checkerframework.checker.nullness.qual.RequiresNonNull;
 
   private static byte[] getEncryptionIvArray(String ivString) {
     String trimmedIv;
-    if (Util.toLowerInvariant(ivString).startsWith("0x")) {
+    if (Ascii.toLowerCase(ivString).startsWith("0x")) {
       trimmedIv = ivString.substring(2);
     } else {
       trimmedIv = ivString;

@@ -15,6 +15,7 @@
  */
 package com.google.android.exoplayer2.ext.ima;
 
+import static com.google.android.exoplayer2.Player.COMMAND_GET_VOLUME;
 import static com.google.android.exoplayer2.ext.ima.ImaUtil.BITRATE_UNSET;
 import static com.google.android.exoplayer2.ext.ima.ImaUtil.TIMEOUT_UNSET;
 import static com.google.android.exoplayer2.ext.ima.ImaUtil.getAdGroupTimesUsForCuePoints;
@@ -55,11 +56,12 @@ import com.google.android.exoplayer2.ExoPlayerLibraryInfo;
 import com.google.android.exoplayer2.Player;
 import com.google.android.exoplayer2.Timeline;
 import com.google.android.exoplayer2.source.ads.AdPlaybackState;
-import com.google.android.exoplayer2.source.ads.AdsLoader.AdViewProvider;
 import com.google.android.exoplayer2.source.ads.AdsLoader.EventListener;
-import com.google.android.exoplayer2.source.ads.AdsLoader.OverlayInfo;
 import com.google.android.exoplayer2.source.ads.AdsMediaSource.AdLoadException;
 import com.google.android.exoplayer2.trackselection.TrackSelectionArray;
+import com.google.android.exoplayer2.trackselection.TrackSelectionUtil;
+import com.google.android.exoplayer2.ui.AdOverlayInfo;
+import com.google.android.exoplayer2.ui.AdViewProvider;
 import com.google.android.exoplayer2.upstream.DataSpec;
 import com.google.android.exoplayer2.util.Log;
 import com.google.android.exoplayer2.util.Util;
@@ -74,7 +76,7 @@ import java.util.List;
 import java.util.Map;
 
 /** Handles loading and playback of a single ad tag. */
-/* package */ final class AdTagLoader implements Player.EventListener {
+/* package */ final class AdTagLoader implements Player.Listener {
 
   private static final String TAG = "AdTagLoader";
 
@@ -282,6 +284,16 @@ import java.util.Map;
   }
 
   /**
+   * Moves UI focus to the skip button (or other interactive elements), if currently shown. See
+   * {@link AdsManager#focus()}.
+   */
+  public void focusSkipButton() {
+    if (adsManager != null) {
+      adsManager.focus();
+    }
+  }
+
+  /**
    * Starts passing events from this instance (including any pending ad playback state) and
    * registers obstructions.
    */
@@ -307,7 +319,7 @@ import java.util.Map;
           new AdPlaybackState(adsId, getAdGroupTimesUsForCuePoints(adsManager.getAdCuePoints()));
       updateAdPlaybackState();
     }
-    for (OverlayInfo overlayInfo : adViewProvider.getAdOverlayInfos()) {
+    for (AdOverlayInfo overlayInfo : adViewProvider.getAdOverlayInfos()) {
       adDisplayContainer.registerFriendlyObstruction(
           imaFactory.createFriendlyObstruction(
               overlayInfo.view,
@@ -331,11 +343,25 @@ import java.util.Map;
 
     boolean playWhenReady = player.getPlayWhenReady();
     onTimelineChanged(player.getCurrentTimeline(), Player.TIMELINE_CHANGE_REASON_SOURCE_UPDATE);
-    if (!AdPlaybackState.NONE.equals(adPlaybackState)
-        && adsManager != null
-        && imaPausedContent
-        && playWhenReady) {
-      adsManager.resume();
+    @Nullable AdsManager adsManager = this.adsManager;
+    if (!AdPlaybackState.NONE.equals(adPlaybackState) && adsManager != null && imaPausedContent) {
+      // Check whether the current ad break matches the expected ad break based on the current
+      // position. If not, discard the current ad break so that the correct ad break can load.
+      long contentPositionMs = getContentPeriodPositionMs(player, timeline, period);
+      int adGroupForPositionIndex =
+          adPlaybackState.getAdGroupIndexForPositionUs(
+              C.msToUs(contentPositionMs), C.msToUs(contentDurationMs));
+      if (adGroupForPositionIndex != C.INDEX_UNSET
+          && imaAdInfo != null
+          && imaAdInfo.adGroupIndex != adGroupForPositionIndex) {
+        if (configuration.debugModeEnabled) {
+          Log.d(TAG, "Discarding preloaded ad " + imaAdInfo);
+        }
+        adsManager.discardAdBreak();
+      }
+      if (playWhenReady) {
+        adsManager.resume();
+      }
     }
   }
 
@@ -386,7 +412,10 @@ import java.util.Map;
     stopUpdatingAdProgress();
     imaAdInfo = null;
     pendingAdLoadError = null;
-    adPlaybackState = new AdPlaybackState(adsId);
+    // No more ads will play once the loader is released, so mark all ad groups as skipped.
+    for (int i = 0; i < adPlaybackState.adGroupCount; i++) {
+      adPlaybackState = adPlaybackState.withSkippedAdGroup(i);
+    }
     updateAdPlaybackState();
   }
 
@@ -440,7 +469,10 @@ import java.util.Map;
   }
 
   @Override
-  public void onPositionDiscontinuity(@Player.DiscontinuityReason int reason) {
+  public void onPositionDiscontinuity(
+      Player.PositionInfo oldPosition,
+      Player.PositionInfo newPosition,
+      @Player.DiscontinuityReason int reason) {
     handleTimelineOrPositionChanged();
   }
 
@@ -451,25 +483,10 @@ import java.util.Map;
       return;
     }
 
-    if (playbackState == Player.STATE_BUFFERING && !player.isPlayingAd()) {
-      // Check whether we are waiting for an ad to preload.
-      int adGroupIndex = getLoadingAdGroupIndex();
-      if (adGroupIndex == C.INDEX_UNSET) {
-        return;
-      }
-      AdPlaybackState.AdGroup adGroup = adPlaybackState.adGroups[adGroupIndex];
-      if (adGroup.count != C.LENGTH_UNSET
-          && adGroup.count != 0
-          && adGroup.states[0] != AdPlaybackState.AD_STATE_UNAVAILABLE) {
-        // An ad is available already so we must be buffering for some other reason.
-        return;
-      }
-      long adGroupTimeMs = C.usToMs(adPlaybackState.adGroupTimesUs[adGroupIndex]);
-      long contentPositionMs = getContentPeriodPositionMs(player, timeline, period);
-      long timeUntilAdMs = adGroupTimeMs - contentPositionMs;
-      if (timeUntilAdMs < configuration.adPreloadTimeoutMs) {
-        waitingForPreloadElapsedRealtimeMs = SystemClock.elapsedRealtime();
-      }
+    if (playbackState == Player.STATE_BUFFERING
+        && !player.isPlayingAd()
+        && isWaitingForAdToLoad()) {
+      waitingForPreloadElapsedRealtimeMs = SystemClock.elapsedRealtime();
     } else if (playbackState == Player.STATE_READY) {
       waitingForPreloadElapsedRealtimeMs = C.TIME_UNSET;
     }
@@ -684,19 +701,13 @@ import java.util.Map;
       return lastVolumePercent;
     }
 
-    @Nullable Player.AudioComponent audioComponent = player.getAudioComponent();
-    if (audioComponent != null) {
-      return (int) (audioComponent.getVolume() * 100);
+    if (player.isCommandAvailable(COMMAND_GET_VOLUME)) {
+      return (int) (player.getVolume() * 100);
     }
 
     // Check for a selected track using an audio renderer.
     TrackSelectionArray trackSelections = player.getCurrentTrackSelections();
-    for (int i = 0; i < player.getRendererCount() && i < trackSelections.length; i++) {
-      if (player.getRendererType(i) == C.TRACK_TYPE_AUDIO && trackSelections.get(i) != null) {
-        return 100;
-      }
-    }
-    return 0;
+    return TrackSelectionUtil.hasTrackOfType(trackSelections, C.TRACK_TYPE_AUDIO) ? 100 : 0;
   }
 
   private void handleAdEvent(AdEvent adEvent) {
@@ -759,25 +770,33 @@ import java.util.Map;
     if (imaAdInfo != null) {
       adPlaybackState = adPlaybackState.withSkippedAdGroup(imaAdInfo.adGroupIndex);
       updateAdPlaybackState();
-    } else {
-      // Mark any ads for the current/reported player position that haven't loaded as being in the
-      // error state, to force resuming content. This includes VPAID ads that never load.
-      long playerPositionUs;
-      if (player != null) {
-        playerPositionUs = C.msToUs(getContentPeriodPositionMs(player, timeline, period));
-      } else if (!VideoProgressUpdate.VIDEO_TIME_NOT_READY.equals(lastContentProgress)) {
-        // Playback is backgrounded so use the last reported content position.
-        playerPositionUs = C.msToUs(lastContentProgress.getCurrentTimeMs());
-      } else {
-        return;
-      }
-      int adGroupIndex =
-          adPlaybackState.getAdGroupIndexForPositionUs(
-              playerPositionUs, C.msToUs(contentDurationMs));
-      if (adGroupIndex != C.INDEX_UNSET) {
-        markAdGroupInErrorStateAndClearPendingContentPosition(adGroupIndex);
-      }
     }
+  }
+
+  /**
+   * Returns whether this instance is expecting the first ad in an the upcoming ad group to load
+   * within the {@link ImaUtil.Configuration#adPreloadTimeoutMs preload timeout}.
+   */
+  private boolean isWaitingForAdToLoad() {
+    @Nullable Player player = this.player;
+    if (player == null) {
+      return false;
+    }
+    int adGroupIndex = getLoadingAdGroupIndex();
+    if (adGroupIndex == C.INDEX_UNSET) {
+      return false;
+    }
+    AdPlaybackState.AdGroup adGroup = adPlaybackState.adGroups[adGroupIndex];
+    if (adGroup.count != C.LENGTH_UNSET
+        && adGroup.count != 0
+        && adGroup.states[0] != AdPlaybackState.AD_STATE_UNAVAILABLE) {
+      // An ad is available already.
+      return false;
+    }
+    long adGroupTimeMs = C.usToMs(adPlaybackState.adGroupTimesUs[adGroupIndex]);
+    long contentPositionMs = getContentPeriodPositionMs(player, timeline, period);
+    long timeUntilAdMs = adGroupTimeMs - contentPositionMs;
+    return timeUntilAdMs < configuration.adPreloadTimeoutMs;
   }
 
   private void handlePlayerStateChanged(boolean playWhenReady, @Player.State int playbackState) {
@@ -823,7 +842,7 @@ import java.util.Map;
       ensureSentContentCompleteIfAtEndOfStream();
       if (!sentContentComplete && !timeline.isEmpty()) {
         long positionMs = getContentPeriodPositionMs(player, timeline, period);
-        timeline.getPeriod(/* periodIndex= */ 0, period);
+        timeline.getPeriod(player.getCurrentPeriodIndex(), period);
         int newAdGroupIndex = period.getAdGroupIndexForPositionUs(C.msToUs(positionMs));
         if (newAdGroupIndex != C.INDEX_UNSET) {
           sentPendingContentPositionMs = false;
@@ -886,7 +905,8 @@ import java.util.Map;
     int adGroupIndex = getAdGroupIndexForAdPod(adPodInfo);
     int adIndexInAdGroup = adPodInfo.getAdPosition() - 1;
     AdInfo adInfo = new AdInfo(adGroupIndex, adIndexInAdGroup);
-    adInfoByAdMediaInfo.put(adMediaInfo, adInfo);
+    // The ad URI may already be known, so force put to update it if needed.
+    adInfoByAdMediaInfo.forcePut(adMediaInfo, adInfo);
     if (configuration.debugModeEnabled) {
       Log.d(TAG, "loadAd " + getAdMediaInfoString(adMediaInfo));
     }
@@ -1305,6 +1325,12 @@ import java.util.Map;
           handleAdGroupLoadError(new IOException("Ad preloading timed out"));
           maybeNotifyPendingAdLoadError();
         }
+      } else if (pendingContentPositionMs != C.TIME_UNSET
+          && player != null
+          && player.getPlaybackState() == Player.STATE_BUFFERING
+          && isWaitingForAdToLoad()) {
+        // Prepare to timeout the load of an ad for the pending seek operation.
+        waitingForPreloadElapsedRealtimeMs = SystemClock.elapsedRealtime();
       }
 
       return videoProgressUpdate;

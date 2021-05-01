@@ -49,9 +49,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
-/**
- * Extracts data from the MPEG-2 TS container format.
- */
+/** Extracts data from the MPEG-2 TS container format. */
 public final class TsExtractor implements Extractor {
 
   /** Factory for {@link TsExtractor} instances. */
@@ -268,8 +266,7 @@ public final class TsExtractor implements Extractor {
         // sample timestamp for that track manually.
         // - If the timestamp adjuster has its timestamp set manually before, and now we seek to a
         // different position, we need to set the first sample timestamp manually again.
-        timestampAdjuster.reset();
-        timestampAdjuster.setFirstSampleTimestampUs(timeUs);
+        timestampAdjuster.reset(timeUs);
       }
     }
     if (timeUs != 0 && tsBinarySearchSeeker != null) {

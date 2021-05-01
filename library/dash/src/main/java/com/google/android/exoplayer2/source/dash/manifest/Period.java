@@ -20,9 +20,7 @@ import com.google.android.exoplayer2.C;
 import java.util.Collections;
 import java.util.List;
 
-/**
- * Encapsulates media content components over a contiguous period of time.
- */
+/** Encapsulates media content components over a contiguous period of time. */
 public class Period {
 
   /**
@@ -30,9 +28,7 @@ public class Period {
    */
   @Nullable public final String id;
 
-  /**
-   * The start time of the period in milliseconds.
-   */
+  /** The start time of the period in milliseconds, relative to the start of the manifest. */
   public final long startMs;
 
   /**

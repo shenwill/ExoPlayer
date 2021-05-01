@@ -21,13 +21,16 @@ import com.google.android.exoplayer2.Player;
 import com.google.android.exoplayer2.Timeline;
 import com.google.android.exoplayer2.testutil.StubExoPlayer;
 import com.google.android.exoplayer2.trackselection.TrackSelectionArray;
+import com.google.android.exoplayer2.util.Clock;
 import com.google.android.exoplayer2.util.ListenerSet;
 
 /** A fake player for testing content/ad playback. */
 /* package */ final class FakePlayer extends StubExoPlayer {
 
-  private final ListenerSet<EventListener, Events> listeners;
+  private final ListenerSet<Listener> listeners;
   private final Timeline.Period period;
+  private final Object windowUid = new Object();
+  private final Object periodUid = new Object();
 
   private Timeline timeline;
   @Player.State private int state;
@@ -43,8 +46,8 @@ import com.google.android.exoplayer2.util.ListenerSet;
     listeners =
         new ListenerSet<>(
             Looper.getMainLooper(),
-            Player.Events::new,
-            (listener, eventFlags) -> listener.onEvents(/* player= */ this, eventFlags));
+            Clock.DEFAULT,
+            (listener, flags) -> listener.onEvents(/* player= */ this, new Events(flags)));
     period = new Timeline.Period();
     state = Player.STATE_IDLE;
     playWhenReady = true;
@@ -64,6 +67,16 @@ import com.google.android.exoplayer2.util.ListenerSet;
    */
   public void setPlayingContentPosition(int periodIndex, long positionMs) {
     boolean notify = isPlayingAd;
+    PositionInfo oldPosition =
+        new PositionInfo(
+            windowUid,
+            /* windowIndex= */ 0,
+            periodUid,
+            /* periodIndex= */ 0,
+            this.positionMs,
+            this.contentPositionMs,
+            this.adGroupIndex,
+            this.adIndexInAdGroup);
     isPlayingAd = false;
     adGroupIndex = C.INDEX_UNSET;
     adIndexInAdGroup = C.INDEX_UNSET;
@@ -71,9 +84,21 @@ import com.google.android.exoplayer2.util.ListenerSet;
     this.positionMs = positionMs;
     contentPositionMs = positionMs;
     if (notify) {
+      PositionInfo newPosition =
+          new PositionInfo(
+              windowUid,
+              /* windowIndex= */ 0,
+              periodUid,
+              /* periodIndex= */ 0,
+              positionMs,
+              this.contentPositionMs,
+              this.adGroupIndex,
+              this.adIndexInAdGroup);
       listeners.sendEvent(
           Player.EVENT_POSITION_DISCONTINUITY,
-          listener -> listener.onPositionDiscontinuity(DISCONTINUITY_REASON_AD_INSERTION));
+          listener ->
+              listener.onPositionDiscontinuity(
+                  oldPosition, newPosition, DISCONTINUITY_REASON_AUTO_TRANSITION));
     }
   }
 
@@ -89,6 +114,16 @@ import com.google.android.exoplayer2.util.ListenerSet;
       long positionMs,
       long contentPositionMs) {
     boolean notify = !isPlayingAd || this.adIndexInAdGroup != adIndexInAdGroup;
+    PositionInfo oldPosition =
+        new PositionInfo(
+            windowUid,
+            /* windowIndex= */ 0,
+            periodUid,
+            /* periodIndex= */ 0,
+            this.positionMs,
+            this.contentPositionMs,
+            this.adGroupIndex,
+            this.adIndexInAdGroup);
     isPlayingAd = true;
     this.periodIndex = periodIndex;
     this.adGroupIndex = adGroupIndex;
@@ -96,9 +131,21 @@ import com.google.android.exoplayer2.util.ListenerSet;
     this.positionMs = positionMs;
     this.contentPositionMs = contentPositionMs;
     if (notify) {
+      PositionInfo newPosition =
+          new PositionInfo(
+              windowUid,
+              /* windowIndex= */ 0,
+              periodUid,
+              /* periodIndex= */ 0,
+              positionMs,
+              contentPositionMs,
+              adGroupIndex,
+              adIndexInAdGroup);
       listeners.sendEvent(
           EVENT_POSITION_DISCONTINUITY,
-          listener -> listener.onPositionDiscontinuity(DISCONTINUITY_REASON_AD_INSERTION));
+          listener ->
+              listener.onPositionDiscontinuity(
+                  oldPosition, newPosition, DISCONTINUITY_REASON_AUTO_TRANSITION));
     }
   }
 
@@ -138,13 +185,18 @@ import com.google.android.exoplayer2.util.ListenerSet;
   }
 
   @Override
-  public void addListener(Player.EventListener listener) {
+  public void addListener(Player.Listener listener) {
     listeners.add(listener);
   }
 
   @Override
-  public void removeListener(Player.EventListener listener) {
+  public void removeListener(Player.Listener listener) {
     listeners.remove(listener);
+  }
+
+  @Override
+  public Commands getAvailableCommands() {
+    return Commands.EMPTY;
   }
 
   @Override

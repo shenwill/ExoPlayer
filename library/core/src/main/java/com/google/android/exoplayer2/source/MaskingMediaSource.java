@@ -178,13 +178,17 @@ public final class MaskingMediaSource extends CompositeMediaSource<Void> {
       //     anyway.
       newTimeline.getWindow(/* windowIndex= */ 0, window);
       long windowStartPositionUs = window.getDefaultPositionUs();
+      Object windowUid = window.uid;
       if (unpreparedMaskingMediaPeriod != null) {
         long periodPreparePositionUs = unpreparedMaskingMediaPeriod.getPreparePositionUs();
-        if (periodPreparePositionUs != 0) {
-          windowStartPositionUs = periodPreparePositionUs;
+        timeline.getPeriodByUid(unpreparedMaskingMediaPeriod.id.periodUid, period);
+        long windowPreparePositionUs = period.getPositionInWindowUs() + periodPreparePositionUs;
+        long oldWindowDefaultPositionUs =
+            timeline.getWindow(/* windowIndex= */ 0, window).getDefaultPositionUs();
+        if (windowPreparePositionUs != oldWindowDefaultPositionUs) {
+          windowStartPositionUs = windowPreparePositionUs;
         }
       }
-      Object windowUid = window.uid;
       Pair<Object, Long> periodPosition =
           newTimeline.getPeriodPosition(
               window, period, /* windowIndex= */ 0, windowStartPositionUs);
@@ -391,12 +395,14 @@ public final class MaskingMediaSource extends CompositeMediaSource<Void> {
 
     @Override
     public Period getPeriod(int periodIndex, Period period, boolean setIds) {
-      return period.set(
+      period.set(
           /* id= */ setIds ? 0 : null,
           /* uid= */ setIds ? MaskingTimeline.MASKING_EXTERNAL_PERIOD_UID : null,
           /* windowIndex= */ 0,
           /* durationUs = */ C.TIME_UNSET,
           /* positionInWindowUs= */ 0);
+      period.isPlaceholder = true;
+      return period;
     }
 
     @Override
